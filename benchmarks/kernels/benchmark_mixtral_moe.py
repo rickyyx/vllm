@@ -6,14 +6,14 @@ import torch
 import torch.nn.functional as F
 import triton
 
-from vllm.model_executor.layers.fused_moe import (fused_moe,
+from vllm.model_executor.layers.fused_moe import (fused_moe, dense_moe,
                                                   get_config_file_name)
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 
 def main():
-    method = fused_moe
+    method = dense_moe
     for bs in [
             1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
             2048, 3072, 4096
@@ -143,6 +143,18 @@ def run_timing(num_calls: int, bs: int, d_model: int, num_total_experts: int,
         dtype=hidden_states.dtype,
     )
 
+    w1s = torch.rand(
+        (num_total_experts, shard_intermediate_size, d_model),
+        device=hidden_states.device,
+        dtype=hidden_states.dtype,
+    )
+
+    w3s = torch.rand(
+        (num_total_experts, shard_intermediate_size, d_model),
+        device=hidden_states.device,
+        dtype=hidden_states.dtype,
+    )
+
     w2s = torch.rand(
         (num_total_experts, d_model, shard_intermediate_size),
         device=hidden_states.device,
@@ -163,8 +175,9 @@ def run_timing(num_calls: int, bs: int, d_model: int, num_total_experts: int,
     for i in range(num_calls):
         hidden_states = method(
             hidden_states=hidden_states,
-            w1=ws,
+            w1=w1s,
             w2=w2s,
+            w3=w3s,
             gating_output=gating_output[i],
             topk=2,
             renormalize=True,
