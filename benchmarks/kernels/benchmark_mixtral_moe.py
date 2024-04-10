@@ -6,8 +6,7 @@ import torch
 import torch.nn.functional as F
 import triton
 
-from vllm.model_executor.layers.fused_moe import (fused_moe, dense_moe,
-                                                  get_config_file_name)
+from vllm.model_executor.layers.fused_moe.dense_moe import dense_moe
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -115,8 +114,7 @@ def run_grid(bs, method):
     print("best_config", best_config)
 
     # holds Dict[str, Dict[str, int]]
-    filename = get_config_file_name(num_total_experts,
-                                    model_intermediate_size // tp_size)
+    filename = "temp.json"
     print(f"writing config to file {filename}")
     existing_content = {}
     if os.path.exists(filename):
