@@ -166,7 +166,7 @@ def run_timing(num_calls: int, bs: int, d_model: int, num_total_experts: int,
     gating_output = F.softmax(torch.rand(
         (num_calls, bs, num_total_experts),
         device=hidden_states.device,
-        dtype=torch.float32,
+        dtype=hidden_states.dtype,
     ),
                               dim=-1)
 
