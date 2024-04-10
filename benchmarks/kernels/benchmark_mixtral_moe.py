@@ -11,6 +11,8 @@ from vllm.model_executor.layers.fused_moe import (fused_moe, dense_moe,
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
+torch.set_default_dtype(torch.bfloat16)
+
 
 def main():
     method = dense_moe
