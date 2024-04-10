@@ -1,3 +1,5 @@
+from typing import Any, Dict, Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch._inductor.config
