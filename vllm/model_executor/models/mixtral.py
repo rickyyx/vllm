@@ -86,6 +86,8 @@ class MixtralMoE(nn.Module):
                                      params_dtype=self.params_dtype,
                                      linear_method=None)
 
+        # self.w1s = ...
+        # self.w3s = ...
         self.ws = nn.Parameter(
             torch.empty(self.num_total_experts,
                         2 * self.intermediate_size,
