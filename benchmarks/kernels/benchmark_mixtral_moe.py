@@ -15,7 +15,7 @@ torch.set_default_dtype(torch.bfloat16)
 
 
 def main():
-    method = dense_moe
+    method = torch.compile(dense_moe)
     for bs in [
             1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
             2048, 3072, 4096
