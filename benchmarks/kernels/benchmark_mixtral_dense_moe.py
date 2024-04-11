@@ -13,27 +13,31 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 torch.set_default_dtype(torch.bfloat16)
 
 def main():
-    # method = torch.compile(dense_moe, fullgraph=True)
+    method = torch.compile(dense_moe, fullgraph=True)
+    bss = [
+            1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
+            2048, 3072, 4096
+    ]
+    tps  = [4]
+    for tp in tps:
+        print("tp=", tp)
+        for bs in bss:
+            run_grid(bs, method=method, tp=tp)
+
+    # from vllm.model_executor.layers.fused_moe.fused_moe import fused_moe
+    # method = fused_moe
     # for bs in [
     #         1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
-    #         2048, 3072, 4096
     # ]:
     #     run_grid(bs, method=method)
-
-    from vllm.model_executor.layers.fused_moe.fused_moe import fused_moe
-    method = fused_moe
-    for bs in [
-            1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
-    ]:
-        run_grid(bs, method=method)
     
 
 
-def run_grid(bs, method):
+def run_grid(bs, method, tp=1):
     d_model = 4096
     num_total_experts = 8
     top_k = 2
-    tp_size = 1
+    tp_size = tp
     model_intermediate_size = 14336
     num_layers = 32
     num_calls = 100
@@ -41,46 +45,35 @@ def run_grid(bs, method):
     num_warmup_trials = 1
     num_trials = 1
 
-    configs = []
     # if bs <= 16:
     #     BLOCK_SIZES_M = [16]
     # elif bs <= 32:
-    #     BLOCK_SIZES_M = [16]
+    #     BLOCK_SIZES_M = [16, 32]
     # elif bs <= 64:
-    #     BLOCK_SIZES_M = [16]
+    #     BLOCK_SIZES_M = [16, 32, 64]
     # elif bs <= 128:
-    #     BLOCK_SIZES_M = [16]
+    #     BLOCK_SIZES_M = [16, 32, 64, 128]
     # else:
-    #     BLOCK_SIZES_M = [16]
+    #     BLOCK_SIZES_M = [16, 32, 64, 128, 256]
+    #for block_size_n in [32, 64, 128, 256]:
+    ## for block_size_n in [32]:
+    #    for block_size_m in BLOCK_SIZES_M:
+    #        # for block_size_k in [64]:
+    #        for block_size_k in [64, 128, 256]:
+    #            for group_size_m in [1, 16, 32, 64]:
+    #            # for group_size_m in [1]:
+    #                for num_warps in [4, 8]:
+    #                # for num_warps in [4]:
+    #                    configs.append({
+    #                        "BLOCK_SIZE_M": block_size_m,
+    #                        "BLOCK_SIZE_N": block_size_n,
+    #                        "BLOCK_SIZE_K": block_size_k,
+    #                        "GROUP_SIZE_M": group_size_m,
+    #                        "num_warps": num_warps,
+    #                        "num_stages": 4,
+    #                    })
 
-    if bs <= 16:
-        BLOCK_SIZES_M = [16]
-    elif bs <= 32:
-        BLOCK_SIZES_M = [16, 32]
-    elif bs <= 64:
-        BLOCK_SIZES_M = [16, 32, 64]
-    elif bs <= 128:
-        BLOCK_SIZES_M = [16, 32, 64, 128]
-    else:
-        BLOCK_SIZES_M = [16, 32, 64, 128, 256]
-
-    for block_size_n in [32, 64, 128, 256]:
-    # for block_size_n in [32]:
-        for block_size_m in BLOCK_SIZES_M:
-            # for block_size_k in [64]:
-            for block_size_k in [64, 128, 256]:
-                for group_size_m in [1, 16, 32, 64]:
-                # for group_size_m in [1]:
-                    for num_warps in [4, 8]:
-                    # for num_warps in [4]:
-                        configs.append({
-                            "BLOCK_SIZE_M": block_size_m,
-                            "BLOCK_SIZE_N": block_size_n,
-                            "BLOCK_SIZE_K": block_size_k,
-                            "GROUP_SIZE_M": group_size_m,
-                            "num_warps": num_warps,
-                            "num_stages": 4,
-                        })
+    configs = [{}]
 
     best_config = None
     best_time_us = 1e20

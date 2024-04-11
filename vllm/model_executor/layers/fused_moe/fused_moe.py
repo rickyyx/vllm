@@ -288,6 +288,7 @@ def fused_moe(
     renormalize: bool,
     inplace: bool = False,
     override_config: Optional[Dict[str, Any]] = None,
+    w3: torch.Tensor = None,
 ) -> torch.Tensor:
     """
     This function computes a Mixture of Experts (MoE) layer using two sets of
