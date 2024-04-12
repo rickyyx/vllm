@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 import triton
 
-from vllm.model_executor.layers.fused_moe import (fused_moe,
+from vllm.model_executor.layers.fused_moe import (fused_moe, dense_moe,
                                                   get_config_file_name)
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -21,7 +21,15 @@ def main():
         run_grid(bs, method=method)
 
 
-def run_grid(bs, method):
+    method = dense_moe
+    for bs in [
+            1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024, 1536,
+            2048, 3072, 4096
+    ]:
+        run_grid(bs, method=method, with_configs=False)
+
+
+def run_grid(bs, method, with_configs=True):
     d_model = 4096
     num_total_experts = 8
     top_k = 2
@@ -61,6 +69,9 @@ def run_grid(bs, method):
 
     best_config = None
     best_time_us = 1e20
+
+    if not with_configs:
+        configs = [{}]
 
     for config in configs:
         print(f'{tp_size=} {bs=}')
@@ -113,6 +124,10 @@ def run_grid(bs, method):
     print("best_config", best_config)
 
     # holds Dict[str, Dict[str, int]]
+    if not with_configs:
+        # No configs being used, just skip.
+        return
+
     filename = get_config_file_name(num_total_experts,
                                     model_intermediate_size // tp_size)
     print(f"writing config to file {filename}")
@@ -152,7 +167,7 @@ def run_timing(num_calls: int, bs: int, d_model: int, num_total_experts: int,
     gating_output = F.softmax(torch.rand(
         (num_calls, bs, num_total_experts),
         device=hidden_states.device,
-        dtype=torch.float32,
+        dtype=hidden_states.dtype,
     ),
                               dim=-1)
 

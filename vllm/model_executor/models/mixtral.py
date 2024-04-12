@@ -22,6 +22,7 @@
 # limitations under the License.
 """Inference-only Mixtral model."""
 from typing import List, Optional
+import os
 
 import torch
 from torch import nn
@@ -29,7 +30,7 @@ from transformers import MixtralConfig
 
 from vllm.attention import Attention, AttentionMetadata
 from vllm.config import LoRAConfig
-from vllm.model_executor.layers.fused_moe import fused_moe
+from vllm.model_executor.layers.fused_moe import fused_moe, dense_moe
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (LinearMethodBase,
                                                QKVParallelLinear,
@@ -50,6 +51,8 @@ from vllm.model_executor.weight_utils import (default_weight_loader,
                                               hf_model_weights_iterator)
 from vllm.sequence import SamplerOutput
 
+
+USE_DENSE_MOE = os.environ.get("USE_DENSE_MOE", "0") == "1"
 
 class MixtralMoE(nn.Module):
     """A tensor-parallel MoE implementation for Mixtral that shards each expert
@@ -125,7 +128,11 @@ class MixtralMoE(nn.Module):
         hidden_states = hidden_states.view(-1, self.hidden_size)
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
-        final_hidden_states = fused_moe(hidden_states,
+        if num_tokens <= 2 and USE_DENSE_MOE:
+            moe_fn = dense_moe
+        else:
+            moe_fn = fused_moe
+        final_hidden_states = moe_fn(hidden_states,
                                         self.ws,
                                         self.w2s,
                                         router_logits,
