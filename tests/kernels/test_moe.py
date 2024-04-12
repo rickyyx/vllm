@@ -87,7 +87,7 @@ def test_fused_moe(
 @pytest.mark.parametrize("dtype",
                          [torch.float32, torch.float16, torch.bfloat16], ids=["f32", "f16", "bf16"])
 @pytest.mark.parametrize("seq_len", [64, 2])
-@pytest.mark.parametrize("use_dense_moe", ["0", "1"], ids=["fused", "dense"])
+@pytest.mark.parametrize("use_dense_moe", ["1", "0"], ids=["dense", "fuse"])
 @torch.inference_mode()
 def test_mixtral_moe(dtype: torch.dtype, seq_len: int, use_dense_moe: bool, monkeypatch):
     """Make sure our Mixtral MoE implementation agrees with the one from

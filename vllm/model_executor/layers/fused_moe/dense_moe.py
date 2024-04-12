@@ -12,7 +12,6 @@ def conditional_linear(x, expert_indices, w, num_experts):
     num_experts: E
     """
     if expert_indices.shape[0] <= 2:
-        raise ValueError("here here")
         w_weights = w[expert_indices].view(-1, *w.shape[-2:]) # [T, A, O, I]
         return torch.einsum("ti, toi -> to", x, w_weights)
     else:

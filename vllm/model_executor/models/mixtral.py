@@ -52,7 +52,6 @@ from vllm.model_executor.weight_utils import (default_weight_loader,
 from vllm.sequence import SamplerOutput
 
 
-USE_DENSE_MOE = os.environ.get("USE_DENSE_MOE", "0") == "1"
 
 class MixtralMoE(nn.Module):
     """A tensor-parallel MoE implementation for Mixtral that shards each expert
@@ -108,6 +107,7 @@ class MixtralMoE(nn.Module):
         set_weight_attrs(self.w2s, {
             "weight_loader": self.weight_loader,
         })
+        self.use_dense_moe = os.environ.get("USE_DENSE_MOE", "0") == "1"
 
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor,
                       weight_name: str, expert_id: int):
@@ -128,7 +128,7 @@ class MixtralMoE(nn.Module):
         hidden_states = hidden_states.view(-1, self.hidden_size)
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
-        if num_tokens <= 2 and USE_DENSE_MOE:
+        if num_tokens <= 2 and self.use_dense_moe:
             moe_fn = dense_moe
         else:
             moe_fn = fused_moe
