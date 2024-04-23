@@ -2,7 +2,11 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch._inductor.config
+
 torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.triton.unique_kernel_names = True
+torch._inductor.config.fx_graph_cache = True # Experimental feature to reduce compilation times, will be on by default in future
+
 
 def conditional_linear(x, expert_indices, w, num_experts):
     """
@@ -48,8 +52,10 @@ def conditional_feed_forward(x, expert_indices, w1, w2, w3, num_experts):
     return conditional_linear((x1 * x3), expert_indices, w2, num_experts)
 
 
-
-def _dense_moe(
+@torch.compile(
+    mode="max-autotune-no-cudagraphs"
+)
+def dense_moe(
     hidden_states: torch.Tensor,
     w1: torch.Tensor,
     w2: torch.Tensor,
@@ -90,6 +96,3 @@ def _dense_moe(
 
     expert_outs = conditional_feed_forward(hidden_states, expert_indices, w1, w2, w3, num_experts)
     return torch.einsum('tai,ta -> ti', expert_outs.view(-1, topk, expert_outs.shape[-1]), expert_weights)
-
-# Combine the function with the full graph compilation
-dense_moe = torch.compile(_dense_moe, fullgraph=True)

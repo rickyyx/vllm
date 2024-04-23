@@ -128,6 +128,16 @@ class MixtralMoE(nn.Module):
         hidden_states = hidden_states.view(-1, self.hidden_size)
         # router_logits: (num_tokens, n_experts)
         router_logits, _ = self.gate(hidden_states)
+        # print(f"hidden states dtype: {hidden_states.dtype}")
+        # print(f"ws: {self.ws.dtype}")
+        # print(f"w2s: {self.w2s.dtype}")
+        # print(f"router: {router_logits.dtype}")
+        
+        # print(f"hidden states size: {hidden_states.shape}")
+        # print(f"ws size:            {self.ws.shape}")
+        # print(f"w2s size:           {self.w2s.shape}")
+        # print(f"router:             {router_logits.shape}")
+        # print(f"top_k:              {self.top_k}")
         if num_tokens <= 2 and self.use_dense_moe:
             moe_fn = dense_moe
         else:

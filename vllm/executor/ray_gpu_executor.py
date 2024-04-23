@@ -82,6 +82,16 @@ class RayGPUExecutor(ExecutorBase):
         })
 
         return ray_remote_kwargs
+    
+    def _configure_extra_envs(self, ray_remote_kwargs) -> Dict[str, Any]:
+        runtime_env = ray_remote_kwargs.setdefault("runtime_env", {})
+        env_vars = runtime_env.setdefault("env_vars", {})
+        env_vars.update({
+            "USE_DENSE_MOE": os.environ.get("USE_DENSE_MOE", "0"),
+            "HF_TOKEN": os.environ.get("HF_TOKEN"),
+        })
+        return ray_remote_kwargs
+
 
     def _init_workers_ray(self, placement_group: "PlacementGroup",
                           **ray_remote_kwargs):
@@ -101,6 +111,8 @@ class RayGPUExecutor(ExecutorBase):
         if self.parallel_config.ray_workers_use_nsight:
             ray_remote_kwargs = self._configure_ray_workers_use_nsight(
                 ray_remote_kwargs)
+            
+        ray_remote_kwargs = self._configure_extra_envs(ray_remote_kwargs)
 
         # Create the workers.
         driver_ip = get_ip()
