@@ -138,7 +138,7 @@ class MixtralMoE(nn.Module):
         # print(f"w2s size:           {self.w2s.shape}")
         # print(f"router:             {router_logits.shape}")
         # print(f"top_k:              {self.top_k}")
-        if num_tokens <= 2 and self.use_dense_moe:
+        if self.use_dense_moe:
             moe_fn = dense_moe
         else:
             moe_fn = fused_moe

@@ -26,6 +26,7 @@ from vllm.sequence import (MultiModalData, SamplerOutput, SequenceData,
 from vllm.utils import (CudaMemoryProfiler, async_tensor_h2d, is_hip,
                         is_pin_memory_available, make_tensor_with_pad,
                         maybe_expand_dim)
+from vllm.worker.profiler import Profiler
 
 logger = init_logger(__name__)
 
@@ -38,6 +39,7 @@ _BATCH_SIZES_TO_CAPTURE = [1, 2, 4] + [
     _BATCH_SIZE_ALIGNMENT * i for i in range(1, 33)
 ]
 
+profiler = Profiler()
 
 class PreparePromptMetadata(NamedTuple):
     input_tokens: List[int]
@@ -831,7 +833,10 @@ class ModelRunner:
         }
         if self.vision_language_config:
             execute_model_kwargs.update({"image_input": multi_modal_input})
+
+        profiler.start()
         hidden_states = model_executable(**execute_model_kwargs)
+        profiler.end()
 
         # Compute the logits.
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
@@ -1051,6 +1056,7 @@ class ModelRunner:
         # more stable than cupy, we can remove this, e.g. in v0.4.1.
         self.graph_runners.clear()
         self.pynccl_backend = None
+        profiler.summary()
 
     @property
     def vocab_size(self) -> int:
