@@ -2,12 +2,24 @@ from typing import List, Optional, Set
 
 import torch
 
-from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig)
+from vllm.config import (
+    DeviceConfig,
+    LoadConfig,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+    VisionLanguageConfig,
+)
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
-from vllm.sequence import (SamplerOutput,  SequenceGroupMetadata, SequenceOutput, SequenceGroupOutput)
+from vllm.sequence import (
+    SamplerOutput,
+    SequenceGroupMetadata,
+    SequenceOutput,
+    SequenceGroupOutput,
+)
 from vllm.utils import CudaMemoryProfiler
 from vllm.sequence import Logprob
 
@@ -17,33 +29,37 @@ LLAMA_7B_VOCAB_SIZE = 32000
 
 import random
 
-class ScratchAPI:
-    def load_model(self) -> None:
-        logger.info("Scratch loaded model!")
+from vllm.scratch import ScratchAPI
 
-    def prefill(self, tokens: List[int], session_id: int) -> int:
-        """
-        Prefills the model with the given tokens.
+MODEL_PARAMS_PATH = "/home/ubuntu/data/parameters/ll27b-cuda-f16-fullopt"
 
-        Args:
-            tokens: The tokens to prefill the model with.
-
-        Returns:
-            Next token and a session id.
-        """
-        return random.randint(0, LLAMA_7B_VOCAB_SIZE)
-
-    def decode(self, session_id: int) -> int:
-        """
-        Decodes the next token from the model.
-
-        Args:
-            session_id: The session id.
-
-        Returns:
-            The next token id.
-        """
-        return random.randint(0, LLAMA_7B_VOCAB_SIZE)
+# class ScratchAPI:
+#     def load_model(self) -> None:
+#         logger.info("Scratch loaded model!")
+#
+#     def prefill(self, tokens: List[int], session_id: int) -> int:
+#         """
+#         Prefills the model with the given tokens.
+#
+#         Args:
+#             tokens: The tokens to prefill the model with.
+#
+#         Returns:
+#             Next token and a session id.
+#         """
+#         return random.randint(0, LLAMA_7B_VOCAB_SIZE)
+#
+#     def decode(self, session_id: int) -> int:
+#         """
+#         Decodes the next token from the model.
+#
+#         Args:
+#             session_id: The session id.
+#
+#         Returns:
+#             The next token id.
+#         """
+#         return random.randint(0, LLAMA_7B_VOCAB_SIZE)
 
 
 class ScratchModelRunner:
@@ -69,11 +85,13 @@ class ScratchModelRunner:
 
         # model_config can be None in tests/samplers/test_sampler.py.
         # FIXME(woosuk): This is a hack to make the tests work. Refactor this.
-        self.sliding_window = (model_config.get_sliding_window()
-                               if model_config is not None else None)
+        self.sliding_window = (
+            model_config.get_sliding_window() if model_config is not None else None
+        )
         assert self.sliding_window is None
-        self.device_config = (device_config
-                              if device_config is not None else DeviceConfig())
+        self.device_config = (
+            device_config if device_config is not None else DeviceConfig()
+        )
         self.device = self.device_config.device
         self.lora_manager = None
         self.model_config.enforce_eager = True
@@ -82,11 +100,12 @@ class ScratchModelRunner:
 
     def load_model(self) -> None:
         with CudaMemoryProfiler() as m:
-            self.scratch.load_model()
+            self.scratch.load_model(MODEL_PARAMS_PATH)
 
         self.model_memory_usage = m.consumed_memory
-        logger.info("Loading model weights took %.4f GB",
-                    self.model_memory_usage / float(2**30))
+        logger.info(
+            "Loading model weights took %.4f GB", self.model_memory_usage / float(2**30)
+        )
 
         # KV cache dtype/quantization is not supported.
 
@@ -95,7 +114,7 @@ class ScratchModelRunner:
         self.block_size = block_size
 
     # NOTE: Scratch doesn't use torch.
-    #@torch.inference_mode()
+    # @torch.inference_mode()
     def execute_model(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
@@ -105,7 +124,7 @@ class ScratchModelRunner:
         assert self.is_driver_worker
         assert self.scheduler_config.chunked_prefill_enabled is False
         input_tokens: List[int] = []
-        assert len(seq_group_metadata_list) == 1, ("Only bsize 1 is allowed.")
+        assert len(seq_group_metadata_list) == 1, "Only bsize 1 is allowed."
 
         is_prefill = False
         session_id: Optional[int] = None
@@ -123,7 +142,7 @@ class ScratchModelRunner:
 
             if is_prefill:
                 input_tokens.extend(prompt_token_ids)
-        
+
         assert session_id is not None
         assert parent_id is not None
 
@@ -134,14 +153,20 @@ class ScratchModelRunner:
 
         # Logprob/prompt logprob not supported. It should work once sampler
         # is supported.
-        return SamplerOutput(outputs=[SequenceGroupOutput(
-            samples=[SequenceOutput(
-                parent_id,
-                result_token,
-                {result_token: Logprob(logprob=0.5)} # logprob
-            )],
-            prompt_logprobs=None,
-        )])
+        return SamplerOutput(
+            outputs=[
+                SequenceGroupOutput(
+                    samples=[
+                        SequenceOutput(
+                            parent_id,
+                            result_token,
+                            {result_token: Logprob(logprob=0.5)},  # logprob
+                        )
+                    ],
+                    prompt_logprobs=None,
+                )
+            ]
+        )
 
     @torch.inference_mode()
     def profile_run(self) -> None:
@@ -151,8 +176,9 @@ class ScratchModelRunner:
     def remove_all_loras(self):
         raise NotImplementedError
 
-    def set_active_loras(self, lora_requests: Set[LoRARequest],
-                         lora_mapping: LoRAMapping) -> None:
+    def set_active_loras(
+        self, lora_requests: Set[LoRARequest], lora_mapping: LoRAMapping
+    ) -> None:
         raise NotImplementedError
 
     def add_lora(self, lora_request: LoRARequest) -> bool:

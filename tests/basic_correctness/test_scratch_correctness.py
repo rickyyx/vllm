@@ -2,6 +2,7 @@
 
 Run `pytest tests/basic_correctness/test_scratch_correctness.py`.
 """
+
 import pytest
 
 MODELS = [
@@ -19,21 +20,24 @@ def test_models(
     example_prompts,
     model: str,
     dtype: str,
-    max_tokens: int, # not working
+    max_tokens: int,  # not working
 ) -> None:
-    # hf_model = hf_runner(model, dtype=dtype)
-    # hf_outputs = hf_model.generate_greedy(example_prompts, max_tokens)
-    # del hf_model
+    hf_model = hf_runner(model, dtype=dtype)
+    hf_outputs = hf_model.generate_greedy(example_prompts, max_tokens)
+    del hf_model
 
     vllm_model = vllm_runner(model, dtype=dtype, enforce_eager=True, max_num_seqs=1)
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)
     del vllm_model
-    print(vllm_outputs)
+    # print(vllm_outputs)
+    # breakpoint()
 
-    # for i in range(len(example_prompts)):
-    #     hf_output_ids, hf_output_str = hf_outputs[i]
-    #     vllm_output_ids, vllm_output_str = vllm_outputs[i]
-    #     assert hf_output_str == vllm_output_str, (
-    #         f"Test{i}:\nHF: {hf_output_str!r}\nvLLM: {vllm_output_str!r}")
-    #     assert hf_output_ids == vllm_output_ids, (
-    #         f"Test{i}:\nHF: {hf_output_ids}\nvLLM: {vllm_output_ids}")
+    for i in range(len(example_prompts)):
+        hf_output_ids, hf_output_str = hf_outputs[i]
+        vllm_output_ids, vllm_output_str = vllm_outputs[i]
+        assert (
+            hf_output_str == vllm_output_str
+        ), f"Test{i}:\nHF: {hf_output_str!r}\nvLLM: {vllm_output_str!r}"
+        assert (
+            hf_output_ids == vllm_output_ids
+        ), f"Test{i}:\nHF: {hf_output_ids}\nvLLM: {vllm_output_ids}"
