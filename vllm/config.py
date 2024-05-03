@@ -488,7 +488,8 @@ class LoadConfig:
         if USE_SCRATCH:
             if self.load_format == "auto":
                 self.load_format = "scratch"
-            assert (self.load_format == "scartch" or self.load_format == LoadFormat.SCRATCH)
+            assert (self.load_format == "scartch"
+                    or self.load_format == LoadFormat.SCRATCH)
 
         load_format = self.load_format.lower()
         self.load_format = LoadFormat(load_format)

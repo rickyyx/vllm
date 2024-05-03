@@ -265,6 +265,7 @@ class DummyModelLoader(BaseModelLoader):
 
 
 class ScratchLoader(BaseModelLoader):
+
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
         if load_config.download_dir is None:

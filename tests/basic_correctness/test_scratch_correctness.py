@@ -4,11 +4,16 @@ Run `pytest tests/basic_correctness/test_scratch_correctness.py`.
 """
 
 import pytest
+from vllm.scratch_env import USE_SCRATCH
 
 MODELS = [
     # "facebook/opt-125m",
     "meta-llama/Llama-2-7b-hf",
 ]
+
+assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
+                     "Use ANYSCALE_USE_SCRATCH_LLM=1 pytest -vs "
+                     "tests/basic_correctness/test_scratch_correctness.py")
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -26,10 +31,12 @@ def test_models(
     hf_outputs = hf_model.generate_greedy(example_prompts, max_tokens)
     del hf_model
 
-    vllm_model = vllm_runner(model,
-                             dtype=dtype,
-                             enforce_eager=True,
-                             max_num_seqs=1,)
+    vllm_model = vllm_runner(
+        model,
+        dtype=dtype,
+        enforce_eager=True,
+        max_num_seqs=1,
+    )
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)
     del vllm_model
     print(vllm_outputs)

@@ -9,4 +9,5 @@ if USE_SCRATCH:
     except ImportError:
         raise AssertionError(
             "Scratch API hasn't been built with vLLM properly. "
-            "See https://docs.google.com/document/d/1O9VIfnhYai-gJ1TLlP-3SQ4wH5LqxafxYeEHmEIPD7Q/edit#heading=h.1j3ik15fr6mh") # noqa
+            "See https://docs.google.com/document/d/1O9VIfnhYai-gJ1TLlP-3SQ4wH5LqxafxYeEHmEIPD7Q/edit#heading=h.1j3ik15fr6mh"
+        )  # noqa
