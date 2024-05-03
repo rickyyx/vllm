@@ -14,6 +14,7 @@ from vllm.model_executor.layers.quantization import (QUANTIZATION_METHODS,
 from vllm.transformers_utils.config import get_config, get_hf_text_config
 from vllm.utils import (get_cpu_memory, get_nvcc_cuda_version, is_cpu, is_hip,
                         is_neuron)
+from vllm.scratch_env import USE_SCRATCH
 
 GPTQMarlinConfig = get_quantization_config("gptq_marlin")
 
@@ -446,6 +447,7 @@ class LoadFormat(str, enum.Enum):
     NPCACHE = "npcache"
     DUMMY = "dummy"
     TENSORIZER = "tensorizer"
+    SCRATCH = "scratch"
 
 
 @dataclass
@@ -482,6 +484,11 @@ class LoadConfig:
     def _verify_load_format(self) -> None:
         if not isinstance(self.load_format, str):
             return
+
+        if USE_SCRATCH:
+            if self.load_format == "auto":
+                self.load_format = "scratch"
+            assert (self.load_format == "scartch" or self.load_format == LoadFormat.SCRATCH)
 
         load_format = self.load_format.lower()
         self.load_format = LoadFormat(load_format)

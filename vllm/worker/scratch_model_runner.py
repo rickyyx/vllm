@@ -83,9 +83,9 @@ class ScratchModelRunner:
             "Vision model not supported")
         assert self.vision_language_config is None, (
             "Vision model not supported")
-        assert self.kv_cache_dtype != "auto", (
+        assert self.kv_cache_dtype == "auto", (
             "Currently, Scratch doesn't use kv cache.")
-        assert "llama-2" in self.model_config.model, (
+        assert "llama-2" in self.model_config.model.lower(), (
             "Only Llama 7B is supported.")
         assert self.lora_manager is None, ("lora is not supported.")
         assert self.model_config.enforce_eager is True, (
