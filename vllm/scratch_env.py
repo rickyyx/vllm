@@ -1,7 +1,7 @@
 import os
 
 SCRATCH_ENV_VAR = "ANYSCALE_USE_SCRATCH_LLM"
-USE_SCRATCH = bool(os.getenv(SCRATCH_ENV_VAR, False))
+USE_SCRATCH = bool(int(os.getenv(SCRATCH_ENV_VAR, False)))
 
 if USE_SCRATCH:
     try:

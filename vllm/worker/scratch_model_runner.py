@@ -135,11 +135,15 @@ class ScratchModelRunner:
 
         assert session_id is not None
         assert parent_id is not None
-
+        import time
         if is_prefill:
+            s = time.time()
             result_token = self.scratch.prefill(input_tokens, session_id)
+            print(f"SANG-TODO prefill takes {(time.time() -s)* 1000} ms")
         else:
+            s = time.time()
             result_token = self.scratch.decode(session_id)
+            print(f"SANG-TODO decode takes {(time.time() -s)* 1000} ms")
 
         # Logprob/prompt logprob not supported. It should work once sampler
         # is supported.
