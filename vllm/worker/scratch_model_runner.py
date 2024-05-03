@@ -31,35 +31,8 @@ import random
 
 from vllm.scratch import ScratchAPI
 
-MODEL_PARAMS_PATH = "/home/ubuntu/data/parameters/ll27b-cuda-f16-fullopt"
-
-# class ScratchAPI:
-#     def load_model(self) -> None:
-#         logger.info("Scratch loaded model!")
-#
-#     def prefill(self, tokens: List[int], session_id: int) -> int:
-#         """
-#         Prefills the model with the given tokens.
-#
-#         Args:
-#             tokens: The tokens to prefill the model with.
-#
-#         Returns:
-#             Next token and a session id.
-#         """
-#         return random.randint(0, LLAMA_7B_VOCAB_SIZE)
-#
-#     def decode(self, session_id: int) -> int:
-#         """
-#         Decodes the next token from the model.
-#
-#         Args:
-#             session_id: The session id.
-#
-#         Returns:
-#             The next token id.
-#         """
-#         return random.randint(0, LLAMA_7B_VOCAB_SIZE)
+# MODEL_PARAMS_PATH = "/home/ubuntu/data/parameters/ll27b-cuda-f16-fullopt"
+MODEL_PARAMS_PATH = "/home/ray/default/weights"
 
 
 class ScratchModelRunner:
@@ -85,27 +58,46 @@ class ScratchModelRunner:
 
         # model_config can be None in tests/samplers/test_sampler.py.
         # FIXME(woosuk): This is a hack to make the tests work. Refactor this.
-        self.sliding_window = (
-            model_config.get_sliding_window() if model_config is not None else None
-        )
-        assert self.sliding_window is None
-        self.device_config = (
-            device_config if device_config is not None else DeviceConfig()
-        )
+        self.sliding_window = (model_config.get_sliding_window()
+                               if model_config is not None else None)
+        self.device_config = (device_config
+                              if device_config is not None else DeviceConfig())
         self.device = self.device_config.device
         self.lora_manager = None
         self.model_config.enforce_eager = True
+        self.vision_language_config = vision_language_config
+        self.kv_cache_dtype = kv_cache_dtype
 
         self.scratch = ScratchAPI()
+
+        self._verify_scratch_config()
+
+    def _verify_scratch_config(self):
+        assert self.scheduler_config.max_num_seqs == 1, (
+            "bsize > 1 is not supported.")
+        assert self.is_driver_worker, ("TP > 1 not supported.")
+        assert self.scheduler_config.chunked_prefill_enabled is False, (
+            "Chunked prefill not supported")
+        assert self.sliding_window is None, ("Sliding window not supported")
+        assert self.vision_language_config is None, (
+            "Vision model not supported")
+        assert self.vision_language_config is None, (
+            "Vision model not supported")
+        assert self.kv_cache_dtype != "auto", (
+            "Currently, Scratch doesn't use kv cache.")
+        assert "llama-2" in self.model_config.model, (
+            "Only Llama 7B is supported.")
+        assert self.lora_manager is None, ("lora is not supported.")
+        assert self.model_config.enforce_eager is True, (
+            "cuda graph is not needed for Scratch.")
 
     def load_model(self) -> None:
         with CudaMemoryProfiler() as m:
             self.scratch.load_model(MODEL_PARAMS_PATH)
 
         self.model_memory_usage = m.consumed_memory
-        logger.info(
-            "Loading model weights took %.4f GB", self.model_memory_usage / float(2**30)
-        )
+        logger.info("Loading model weights took %.4f GB",
+                    self.model_memory_usage / float(2**30))
 
         # KV cache dtype/quantization is not supported.
 
@@ -121,8 +113,6 @@ class ScratchModelRunner:
         kv_caches: List[torch.Tensor],
     ) -> Optional[SamplerOutput]:
         # KV cache is unused.
-        assert self.is_driver_worker
-        assert self.scheduler_config.chunked_prefill_enabled is False
         input_tokens: List[int] = []
         assert len(seq_group_metadata_list) == 1, "Only bsize 1 is allowed."
 
@@ -153,20 +143,18 @@ class ScratchModelRunner:
 
         # Logprob/prompt logprob not supported. It should work once sampler
         # is supported.
-        return SamplerOutput(
-            outputs=[
-                SequenceGroupOutput(
-                    samples=[
-                        SequenceOutput(
-                            parent_id,
-                            result_token,
-                            {result_token: Logprob(logprob=0.5)},  # logprob
-                        )
-                    ],
-                    prompt_logprobs=None,
-                )
-            ]
-        )
+        return SamplerOutput(outputs=[
+            SequenceGroupOutput(
+                samples=[
+                    SequenceOutput(
+                        parent_id,
+                        result_token,
+                        {result_token: Logprob(logprob=0.5)},  # logprob
+                    )
+                ],
+                prompt_logprobs=None,
+            )
+        ])
 
     @torch.inference_mode()
     def profile_run(self) -> None:
@@ -176,9 +164,8 @@ class ScratchModelRunner:
     def remove_all_loras(self):
         raise NotImplementedError
 
-    def set_active_loras(
-        self, lora_requests: Set[LoRARequest], lora_mapping: LoRAMapping
-    ) -> None:
+    def set_active_loras(self, lora_requests: Set[LoRARequest],
+                         lora_mapping: LoRAMapping) -> None:
         raise NotImplementedError
 
     def add_lora(self, lora_request: LoRARequest) -> bool:

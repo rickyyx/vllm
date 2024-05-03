@@ -19,8 +19,13 @@ from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.sequence import SamplerOutput, SequenceGroupMetadata
 from vllm.worker.cache_engine import CacheEngine
-from vllm.worker.scratch_model_runner import ScratchModelRunner as ModelRunner
+from vllm.scratch_env import USE_SCRATCH
 from vllm.worker.worker_base import WorkerBase
+
+if USE_SCRATCH:
+    from vllm.worker.scratch_model_runner import ScratchModelRunner as ModelRunner
+else:
+    from vllm.worker.model_runner import ModelRunner
 
 
 class Worker(WorkerBase):

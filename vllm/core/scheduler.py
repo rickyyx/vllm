@@ -12,6 +12,7 @@ from vllm.lora.request import LoRARequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
 from vllm.utils import merge_dicts
+from vllm.scratch_env import USE_SCRATCH
 
 logger = init_logger(__name__)
 
@@ -1009,6 +1010,8 @@ class Scheduler:
         blocks_to_swap_out: Dict[int, int],
         preemption_mode: Optional[PreemptionMode] = None,
     ) -> PreemptionMode:
+        assert USE_SCRATCH is False, (
+            "Preemption is not supported for ScratchLLM now.")
         # If preemption mode is not specified, we determine the mode as follows:
         # We use recomputation by default since it incurs lower overhead than
         # swapping. However, when the sequence group has multiple sequences
