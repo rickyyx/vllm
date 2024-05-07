@@ -2,6 +2,11 @@ import os
 
 SCRATCH_ENV_VAR = "ANYSCALE_USE_SCRATCH_LLM"
 USE_SCRATCH = bool(int(os.getenv(SCRATCH_ENV_VAR, False)))
+SCRATCH_WEIGHTS_BUCKET_NAME = "scratch-working-dirs"
+SCRATCH_WEIGHTS_PREFIX = "weights/llama-7b/ll27b-cuda-f16/"
+SCRATCH_WEIGHTS_URI = f"s3://{SCRATCH_WEIGHTS_BUCKET_NAME}/{SCRATCH_WEIGHTS_PREFIX}"
+SCRATCH_TMP_DIR = "/tmp/scratch/"
+SCRATCH_WEIGHTS_PATH = "/tmp/scratch/"
 
 if USE_SCRATCH:
     try:

@@ -1,4 +1,6 @@
 from typing import List, Optional, Set
+from concurrent.futures import ThreadPoolExecutor
+import concurrent
 
 import torch
 
@@ -11,6 +13,9 @@ from vllm.config import (
     SchedulerConfig,
     VisionLanguageConfig,
 )
+from tqdm import tqdm
+import boto3
+from pathlib import Path
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
@@ -30,8 +35,10 @@ LLAMA_7B_VOCAB_SIZE = 32000
 import random
 
 from vllm.scratch import ScratchAPI
+from vllm.scratch_env import (SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX,
+                              SCRATCH_WEIGHTS_BUCKET_NAME)
 
-# MODEL_PARAMS_PATH = "/home/ubuntu/data/parameters/ll27b-cuda-f16-fullopt"
+# SANG-TODO WORKS?
 MODEL_PARAMS_PATH = "/home/ray/default/weights"
 
 
@@ -92,14 +99,60 @@ class ScratchModelRunner:
             "cuda graph is not needed for Scratch.")
 
     def load_model(self) -> None:
+        assert self.load_config.download_dir is None
+        tmp_dir = Path(SCRATCH_TMP_DIR)
+        tmp_dir.mkdir(exist_ok=True)
+        download_dir = tmp_dir / "weights"
+        download_dir.mkdir(exist_ok=True)
+        download_dir_path = str(download_dir.absolute())
+        self.load_config.download_dir = str(download_dir.absolute())
+
+        self._download_scratch_weights(SCRATCH_WEIGHTS_PREFIX,
+                                       download_dir_path,
+                                       SCRATCH_WEIGHTS_BUCKET_NAME)
+
         with CudaMemoryProfiler() as m:
-            self.scratch.load_model(MODEL_PARAMS_PATH)
+            self.scratch.load_model(download_dir_path)
 
         self.model_memory_usage = m.consumed_memory
         logger.info("Loading model weights took %.4f GB",
                     self.model_memory_usage / float(2**30))
 
         # KV cache dtype/quantization is not supported.
+
+    def _download_scratch_weights(self, prefix: str, target_dir: str,
+                                  bucket: str):
+        # TODO(sang): Figure out if weights are already downloaded.
+        # TODO(sang): Use fast loading.
+        s3_client = boto3.client('s3')
+        files: List[str] = []
+        dirs: List[str] = []
+        next_token = ""
+        base_kwargs = {"Bucket": bucket, "Prefix": prefix}
+        while next_token is not None:
+            kwargs = base_kwargs.copy()
+            if next_token != "":
+                kwargs.update({"ContinuationToken": next_token})
+            results = s3_client.list_objects_v2(**kwargs)
+            contents = results.get("Contents")
+            for content in contents:
+                k = content.get("Key")
+                if k[-1] != "/":
+                    files.append(k)
+                else:
+                    dirs.append(k)
+            next_token = results.get('NextContinuationToken')
+        # Assume there's no subdirectories.
+        assert len(dirs) == 1
+
+        # NOTE(sang): Versioning is not supported now. We assume the
+        # weights are always the same.
+        # NOTE: Threadpool doesn't really improve performance.
+        # Maybe it is rate limited.
+        for file in tqdm(files, desc="Downloading scratch weights..."):
+            dest = Path(target_dir) / Path(file).name
+            if not dest.exists():
+                s3_client.download_file(bucket, file, str(dest.absolute()))
 
     def set_block_size(self, block_size: int) -> None:
         # It will be relevant later.

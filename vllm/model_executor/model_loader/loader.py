@@ -2,7 +2,6 @@
 import copy
 import glob
 import os
-from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Generator, List, Optional, Tuple, Type
 
@@ -262,30 +261,6 @@ class DummyModelLoader(BaseModelLoader):
             # random values to the weights.
             initialize_dummy_weights(model)
         return model.eval()
-
-
-class ScratchLoader(BaseModelLoader):
-
-    def __init__(self, load_config: LoadConfig):
-        super().__init__(load_config)
-        if load_config.download_dir is None:
-            # TODO(sang): Fix it.
-            download_dir = Path("/tmp/scratch")
-            download_dir.mkdir(exist_ok=True)
-            download_dir = download_dir / "weights"
-            download_dir.mkdir(exist_ok=True)
-            load_config.download_dir = str(download_dir.absolute())
-
-    @abstractmethod
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig) -> nn.Module:
-        """Load a model with the given configurations."""
-        # Download model weights.
-        pass
 
 
 class TensorizerLoader(BaseModelLoader):
