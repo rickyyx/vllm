@@ -1,6 +1,5 @@
 from typing import List, Optional, Set
-from concurrent.futures import ThreadPoolExecutor
-import concurrent
+import time
 
 import torch
 
@@ -12,6 +11,7 @@ from vllm.config import (
     ParallelConfig,
     SchedulerConfig,
     VisionLanguageConfig,
+    CacheConfig,
 )
 from tqdm import tqdm
 import boto3
@@ -23,10 +23,14 @@ from vllm.sequence import (
     SamplerOutput,
     SequenceGroupMetadata,
     SequenceOutput,
-    SequenceGroupOutput,
+    CompletionSequenceGroupOutput,
 )
 from vllm.utils import CudaMemoryProfiler
 from vllm.sequence import Logprob
+from vllm.model_executor.layers.logits_processor import LogitsProcessor
+from vllm.model_executor.layers.sampler import Sampler
+from vllm.model_executor import SamplingMetadata
+from vllm.utils import is_pin_memory_available
 
 logger = init_logger(__name__)
 
@@ -50,6 +54,7 @@ class ScratchModelRunner:
         parallel_config: ParallelConfig,
         scheduler_config: SchedulerConfig,
         device_config: DeviceConfig,
+        cache_config: CacheConfig,
         load_config: LoadConfig,
         lora_config: Optional[LoRAConfig],
         kv_cache_dtype: Optional[str] = "auto",
@@ -61,6 +66,7 @@ class ScratchModelRunner:
         self.scheduler_config = scheduler_config
         self.lora_config = lora_config
         self.load_config = load_config
+        self.cache_config = cache_config
         self.is_driver_worker = is_driver_worker
 
         # model_config can be None in tests/samplers/test_sampler.py.
@@ -74,7 +80,11 @@ class ScratchModelRunner:
         self.model_config.enforce_eager = True
         self.vision_language_config = vision_language_config
         self.kv_cache_dtype = kv_cache_dtype
+        self.pin_memory = is_pin_memory_available()
 
+        # Modules
+        self.logit_processor = LogitsProcessor(model_config.hf_config.vocab_size)
+        self.sampler = Sampler()
         self.scratch = ScratchAPI()
 
         self._verify_scratch_config()
@@ -102,7 +112,10 @@ class ScratchModelRunner:
         assert self.load_config.download_dir is None
         tmp_dir = Path(SCRATCH_TMP_DIR)
         tmp_dir.mkdir(exist_ok=True)
-        download_dir = tmp_dir / "weights"
+        weights_dir = tmp_dir / "weights"
+        weights_dir.mkdir(exist_ok=True)
+        # TODO(sang): Need to obtain this programmatically.
+        download_dir = weights_dir / "ll27b-cuda-f16-fullopt"
         download_dir.mkdir(exist_ok=True)
         download_dir_path = str(download_dir.absolute())
         self.load_config.download_dir = str(download_dir.absolute())
@@ -112,7 +125,7 @@ class ScratchModelRunner:
                                        SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
-            self.scratch.load_model(download_dir_path)
+            self.scratch.load_model(str(weights_dir.absolute()))
 
         self.model_memory_usage = m.consumed_memory
         logger.info("Loading model weights took %.4f GB",
@@ -122,7 +135,6 @@ class ScratchModelRunner:
 
     def _download_scratch_weights(self, prefix: str, target_dir: str,
                                   bucket: str):
-        # TODO(sang): Figure out if weights are already downloaded.
         # TODO(sang): Use fast loading.
         s3_client = boto3.client('s3')
         files: List[str] = []
@@ -172,6 +184,9 @@ class ScratchModelRunner:
         is_prefill = False
         session_id: Optional[int] = None
         parent_id = None
+
+        query_lens = []
+        seq_lens = []
         for seq_group_metadata in seq_group_metadata_list:
             seq_data = seq_group_metadata.seq_data
             # Scratch only supports a single sequence.
@@ -180,28 +195,63 @@ class ScratchModelRunner:
             for seq_id, data in seq_data.items():
                 parent_id = seq_id
                 prompt_token_ids = data.prompt_token_ids
+
+            assert parent_id is not None
             session_id = int(seq_group_metadata.request_id)
             is_prefill = seq_group_metadata.is_prompt
+            if is_prefill:
+                query_lens.append(seq_data[parent_id].get_prompt_len())
+                seq_lens.append(seq_data[parent_id].get_prompt_len())
+            else:
+                query_lens.append(1)
+                seq_lens.append(seq_data[parent_id].get_len())
 
             if is_prefill:
                 input_tokens.extend(prompt_token_ids)
 
         assert session_id is not None
         assert parent_id is not None
-        import time
+        sampling_metadata = SamplingMetadata.prepare(
+            seq_group_metadata_list, seq_lens, query_lens, self.device,
+            self.pin_memory)
+        return self._execute_and_vllm_sample(is_prefill, input_tokens, session_id, parent_id, sampling_metadata)
+        # return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_id)
+
+    def _execute_and_vllm_sample(self, is_prefill: bool, input_tokens: List[int], session_id: int, parent_id: int, sampling_metadata: SamplingMetadata):
         if is_prefill:
             s = time.time()
-            result_token = self.scratch.prefill(input_tokens, session_id)
-            print(f"SANG-TODO prefill takes {(time.time() -s)* 1000} ms")
+            hidden_states: List[float] = self.scratch.prefill(input_tokens, session_id)
+            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
         else:
             s = time.time()
-            result_token = self.scratch.decode(session_id)
-            print(f"SANG-TODO decode takes {(time.time() -s)* 1000} ms")
+            hidden_states: List[float] = self.scratch.decode(session_id)
+            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
+
+        # TODO(sang): Currently, scratch API returns a list of floats. Convert it to torch tensor.
+        hidden_states_tensor = torch.tensor(hidden_states, device="cuda", dtype=torch.float16)
+
+        logits = self.logit_processor(hidden_states_tensor, self.lm_head_weight, sampling_metadata)
+        # Sample the next token.
+        return self.sampler(
+            logits=logits,
+            sampling_metadata=sampling_metadata,
+        )
+
+    def _execute_and_scratch_sample(self, is_prefill: bool, input_tokens: List[int], session_id: int, parent_id: int):
+        # prefill_sampled
+        if is_prefill:
+            s = time.time()
+            result_token = self.scratch.prefill_sampled(input_tokens, session_id)
+            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
+        else:
+            s = time.time()
+            result_token = self.scratch.decode_sampled(session_id)
+            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
 
         # Logprob/prompt logprob not supported. It should work once sampler
         # is supported.
         return SamplerOutput(outputs=[
-            SequenceGroupOutput(
+            CompletionSequenceGroupOutput(
                 samples=[
                     SequenceOutput(
                         parent_id,
