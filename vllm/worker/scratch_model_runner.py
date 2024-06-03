@@ -125,16 +125,16 @@ class ScratchModelRunner:
                                        SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
-            self.model = get_model(
-                model_config=self.model_config,
-                device_config=self.device_config,
-                load_config=self.load_config,
-                lora_config=self.lora_config,
-                vision_language_config=self.vision_language_config,
-                parallel_config=self.parallel_config,
-                scheduler_config=self.scheduler_config,
-                cache_config=self.cache_config,
-            )
+            # self.model = get_model(
+            #     model_config=self.model_config,
+            #     device_config=self.device_config,
+            #     load_config=self.load_config,
+            #     lora_config=self.lora_config,
+            #     vision_language_config=self.vision_language_config,
+            #     parallel_config=self.parallel_config,
+            #     scheduler_config=self.scheduler_config,
+            #     cache_config=self.cache_config,
+            # )
             self.scratch = ScratchAPI(str(weights_dir.absolute()))
             self.scratch.start()
 
@@ -283,7 +283,7 @@ class ScratchModelRunner:
                 tokens_out.data_ptr(),
             )
             print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
-        print(f"SANG-TODO token: {tokens_out}")
+        # print(f"SANG-TODO token: {tokens_out}")
 
         result_token = tokens_out.tolist()[0]
         # Logprob/prompt logprob not supported. It should work once sampler
