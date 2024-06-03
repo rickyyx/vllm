@@ -71,8 +71,11 @@ class CacheEngine:
         # TODO(sang): It is a hack until paged attn is supported by scratch.
         if not USE_SCRATCH:
             for _ in range(self.num_layers):
+                # null block in CpuGpuBlockAllocator requires at least that
+                # block to be zeroed-out.
+                # We zero-out everything for simplicity.
                 kv_cache.append(
-                    torch.empty(kv_cache_shape,
+                    torch.zeros(kv_cache_shape,
                                 dtype=self.dtype,
                                 pin_memory=pin_memory,
                                 device=device))
