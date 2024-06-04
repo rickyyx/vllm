@@ -83,7 +83,9 @@ class ScratchModelRunner:
 
         # Lazily initialized.
         self.scratch: ScratchAPI
-        # Torch module. It is used to load lm_head for logit computation.
+        # Scratch only returns embedding. We need to multiply it to lm_head
+        # to get the final logits, and that happens in vLLM. In order to
+        # do that, we create a torch module with lm_head weights loaded.
         self.model: nn.Module
         # session_id_str -> session_id
         self.session_ids = {}
@@ -94,6 +96,7 @@ class ScratchModelRunner:
         assert self.scheduler_config.max_num_seqs == 1, (
             "bsize > 1 is not supported.")
         assert self.is_driver_worker, ("TP > 1 not supported.")
+        assert self.model_config.dtype == torch.half, ("Only half type is allowed.")
         assert self.scheduler_config.chunked_prefill_enabled is False, (
             "Chunked prefill not supported")
         assert self.sliding_window is None, ("Sliding window not supported")
@@ -125,16 +128,16 @@ class ScratchModelRunner:
                                        SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
-            # self.model = get_model(
-            #     model_config=self.model_config,
-            #     device_config=self.device_config,
-            #     load_config=self.load_config,
-            #     lora_config=self.lora_config,
-            #     vision_language_config=self.vision_language_config,
-            #     parallel_config=self.parallel_config,
-            #     scheduler_config=self.scheduler_config,
-            #     cache_config=self.cache_config,
-            # )
+            self.model = get_model(
+                model_config=self.model_config,
+                device_config=self.device_config,
+                load_config=self.load_config,
+                lora_config=self.lora_config,
+                vision_language_config=self.vision_language_config,
+                parallel_config=self.parallel_config,
+                scheduler_config=self.scheduler_config,
+                cache_config=self.cache_config,
+            )
             self.scratch = ScratchAPI(str(weights_dir.absolute()))
             self.scratch.start()
 
@@ -197,6 +200,7 @@ class ScratchModelRunner:
         query_lens = []
         seq_lens = []
         for seq_group_metadata in seq_group_metadata_list:
+            is_prefill = seq_group_metadata.is_prompt
             seq_data = seq_group_metadata.seq_data
             # Scratch only supports a single sequence.
             assert len(seq_data) == 1
@@ -205,11 +209,12 @@ class ScratchModelRunner:
                 if is_prefill:
                     input_tokens.extend(data.prompt_token_ids)
                 else:
-                    input_tokens.extend(data.get_token_ids())
+                    # pass
+                    input_tokens.append(data.get_token_ids()[-1])
+                    # input_tokens.append(data.get_token_ids())
 
             assert parent_id is not None
             session_id = int(seq_group_metadata.request_id)
-            is_prefill = seq_group_metadata.is_prompt
             if is_prefill:
                 query_lens.append(seq_data[parent_id].get_prompt_len())
                 seq_lens.append(seq_data[parent_id].get_prompt_len())
@@ -224,15 +229,22 @@ class ScratchModelRunner:
             self.pin_memory)
 
         if session_id not in self.session_ids:
+            # SANG-TODO Remove the logic after supporting multi sessions.
+            if len(self.session_ids) != 0:
+                self.session_ids = {}
             self.session_ids[session_id] = self.scratch.new_session()
+            print(self.session_ids)
 
+        print(f"SANG-TODO {input_tokens=}")
         # return self._execute_and_vllm_sample(is_prefill, input_tokens, session_id, parent_id, sampling_metadata)
         return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_id)
 
     def _execute_and_vllm_sample(self, is_prefill: bool, input_tokens: List[int], session_id: int, parent_id: int, sampling_metadata: SamplingMetadata):
         input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
-        hidden_states = torch.zeros(1, device="cuda", dtype=torch.int)
         batch_size = 1
+        hidden_states = torch.zeros(
+            self.model_config.get_hidden_size() * batch_size, device="cuda", dtype=torch.half)
+        session_id = self.session_ids[session_id]
 
         if is_prefill:
             s = time.time()
@@ -242,27 +254,42 @@ class ScratchModelRunner:
                 input_tokens_tensor.shape[0],
                 hidden_states.data_ptr()
             )
-            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
+            # print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
         else:
             s = time.time()
+            print(f"SANG-TODO decode input= {input_tokens}")
             session_ids_tensor = torch.tensor([session_id], device="cuda", dtype=torch.int)
-            self.scratch.decode_sampled(
+            self.scratch.decode(
                 session_ids_tensor.data_ptr(),
                 input_tokens_tensor.data_ptr(),
                 batch_size,
                 hidden_states.data_ptr(),
             )
-            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
-        logits = self.model.compute_logits(hidden_states, sampling_metadata)
-        return self.model.sample(
+            # print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
+
+        # SANG-TODO remove it. Hack.
+        sampling_metadata.selected_token_indices = torch.tensor([0], device="cuda", dtype=torch.int)
+
+        logits = self.model.compute_logits(hidden_states.view(-1, self.model_config.get_hidden_size()), sampling_metadata)
+        if is_prefill:
+            print("SANG-TODO hidden_states after prefill:")
+            print(hidden_states)
+            print("SANG-TODO logits after prefill:")
+            print(logits)
+
+        output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
+        # print(f"SANG-TODO {output=}")
+        # print(f"SANG-TODO output_token {output.outputs[0].samples[0].output_token=}")
+        return output
 
     def _execute_and_scratch_sample(self, is_prefill: bool, input_tokens: List[int], session_id: object, parent_id: int):
         input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
         tokens_out = torch.zeros(1, device="cuda", dtype=torch.int)
         batch_size = 1
+        session_id = self.session_ids[session_id]
 
         # prefill_sampled
         if is_prefill:
@@ -283,7 +310,7 @@ class ScratchModelRunner:
                 tokens_out.data_ptr(),
             )
             print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
-        # print(f"SANG-TODO token: {tokens_out}")
+        print(f"SANG-TODO token: {tokens_out}")
 
         result_token = tokens_out.tolist()[0]
         # Logprob/prompt logprob not supported. It should work once sampler
