@@ -7,9 +7,9 @@ import sys
 import time
 from functools import wraps
 from typing import List, Optional
-from ci_env import CI_CR_ID
 
 import typer
+from ci_env import CI_CR_ID
 
 app = typer.Typer()
 
