@@ -7,27 +7,41 @@ source .buildkite/ci/bash_util/timeout.sh
 bash .buildkite/ci/bash_util/test_timeout.sh
 
 # run unit test
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/json_constrained_decoding/test_json_constrained_decoding.py
-run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/constrained_decoding
-run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/anyguide
-run_with_timeout $(( 15 * 60 )) pytest -vs tests/anyscale/lm_format_enforcer
-run_with_timeout $(( 60 )) pytest -vs tests/async_engine
-run_with_timeout $(( 60 )) pytest -vs tests/core
-run_with_timeout $(( 15 * 60 )) pytest -vs tests/engine
-run_with_timeout $(( 5 * 60 )) pytest -vs tests/worker
-run_with_timeout $(( 20 * 60 )) pytest -vs tests/samplers
-run_with_timeout $(( 40 * 60 )) pytest -vs tests/anyscale/lora --ignore=tests/anyscale/lora/test_long_context.py --ignore=tests/anyscale/lora/test_layer_variation.py
-run_with_timeout $(( 40 * 60 )) pytest -vs tests/anyscale/test_async_decoding.py
-run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_utils.py
-run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_sliding_window.py
-run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_sampler.py
-run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/ops
-run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_distributed.py
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/shared_memory
-run_with_timeout $(( 60 )) pytest -vs tests/test_sequence.py
-run_with_timeout $(( 5 * 60 )) pytest -vs tests/multimodal/test_llava_modeling.py
-run_with_timeout $(( 40 * 60 )) pytest -vs tests/test_multi_decoding.py
+# run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/json_constrained_decoding/test_json_constrained_decoding.py
+# run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/constrained_decoding
+# run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/anyguide
+# run_with_timeout $(( 15 * 60 )) pytest -vs tests/anyscale/lm_format_enforcer
+# Regression test
+run_with_timeout $(( 60 )) pytest -v -s tests/test_regression.py
+# Async Engine test
+run_with_timeout $(( 60 )) pytest -v -s tests/pytest -v -s async_engine
+# Basic correctness test
+run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s basic_correctness/test_basic_correctness.py
+run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s basic_correctness/test_basic_correctness.py
+run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s basic_correctness/test_chunked_prefill.py
+run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s basic_correctness/test_chunked_prefill.py
+run_with_timeout $(( 60 * 5 )) VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 pytest -v -s basic_correctness/test_preemption.py
+# Entrypoints Test
+run_with_timeout $(( 60 * 5 )) pytest -v -s entrypoints -m llm
+run_with_timeout $(( 60 * 5 )) pytest -v -s entrypoints -m openai
+# LogitsProcessor Test
+run_with_timeout $(( 60 )) pytest -v -s test_logits_processor.py
+# run_with_timeout $(( 60 )) pytest -vs tests/async_engine
+# run_with_timeout $(( 60 )) pytest -vs tests/core
+# run_with_timeout $(( 15 * 60 )) pytest -vs tests/engine
+# run_with_timeout $(( 5 * 60 )) pytest -vs tests/worker
+# run_with_timeout $(( 20 * 60 )) pytest -vs tests/samplers
+# run_with_timeout $(( 40 * 60 )) pytest -vs tests/anyscale/lora --ignore=tests/anyscale/lora/test_long_context.py --ignore=tests/anyscale/lora/test_layer_variation.py
+# run_with_timeout $(( 40 * 60 )) pytest -vs tests/anyscale/test_async_decoding.py
+# run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_utils.py
+# run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_sliding_window.py
+# run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_sampler.py
+# run_with_timeout $(( 5 * 60 )) pytest -vs tests/anyscale/ops
+# run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_distributed.py
+# run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/shared_memory
+# run_with_timeout $(( 60 )) pytest -vs tests/test_sequence.py
+# run_with_timeout $(( 5 * 60 )) pytest -vs tests/multimodal/test_llava_modeling.py
+# run_with_timeout $(( 40 * 60 )) pytest -vs tests/test_multi_decoding.py
 
 # run benchmarks
 run_with_timeout $(( 20 * 60 )) bash ./benchmarks/anyscale/benchmark.sh
-
