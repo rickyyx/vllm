@@ -3,7 +3,7 @@ set -euxo pipefail
 
 S3_WHEEL_CACHE="s3://anyscale-test/wheels"
 VLLM_PROJECT="anyscale/vllm"
-VLLM_WHEEL="fork-vllm-0.4.3-cp39-cp39-linux_x86_64.whl"
+VLLM_WHEEL="vllm-0.4.3-cp39-cp39-linux_x86_64.whl"
 # We need to edit ldconfig directly as Triton AOT depends on that
 # echo "/usr/local/cuda/lib64/stubs" | sudo tee /etc/ld.so.conf.d/001_cuda_stubs.conf
 # sudo ldconfig
