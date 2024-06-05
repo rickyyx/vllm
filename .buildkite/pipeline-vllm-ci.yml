@@ -23,17 +23,17 @@ steps:
   #       - exit_status: -1 # Agent lost/spot preemption
   #         limit: 2
 
-  # - label: ":running: kernel tests"
-  #   timeout: 7200
-  #   env:
-  #     COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_kernel_tests.sh"
-  #     COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
-  #   commands:
-  #     - bash .buildkite/job_submit_buildkite.sh
-  #   retry:
-  #     automatic:
-  #       - exit_status: -1 # Agent lost/spot preemption
-  #         limit: 2
+  - label: ":running: kernel tests"
+    timeout: 7200
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_kernel_tests.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
 
   # - label: ":running: s3 test"
   #   timeout: 1800
@@ -47,17 +47,17 @@ steps:
   #       - exit_status: -1 # Agent lost/spot preemption
   #         limit: 2
 
-  # - label: ":running: distributed test"
-  #   timeout: 3600
-  #   env:
-  #     COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_distributed_test.sh"
-  #     COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
-  #   commands:
-  #     - bash .buildkite/job_submit_buildkite.sh
-  #   retry:
-  #     automatic:
-  #       - exit_status: -1 # Agent lost/spot preemption
-  #         limit: 2
+  - label: ":running: distributed test"
+    timeout: 3600
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_distributed_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
 
   # - label: ":running: correctness test"
   #   timeout: 3600
