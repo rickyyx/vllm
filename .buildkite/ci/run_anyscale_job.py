@@ -1,3 +1,4 @@
+# ruff: noqa
 import hashlib
 import os
 import signal
@@ -90,7 +91,8 @@ def _create_cluster_compute(cc_path: str):
     cc_name = f"aviary-{cc_file_hash}"
 
     _run(
-        f"anyscale compute-config get {cc_name} || anyscale compute-config create -n {cc_name} {new_cc_path}"
+        f"anyscale compute-config get {cc_name} || "
+        f"anyscale compute-config create -n {cc_name} {new_cc_path}"
     )
     return cc_name
 
@@ -116,7 +118,8 @@ def _create_cluster_env(
         f.write(ce_file)
     ce_name = f"aviary-{_file_hash(new_ce_file)}"
     _run(
-        f"anyscale cluster-env get {ce_name} || anyscale cluster-env build -n {ce_name} {new_ce_file}"
+        f"anyscale cluster-env get {ce_name} || anyscale "
+        f"cluster-env build -n {ce_name} {new_ce_file}"
     )
     return ce_name
 
