@@ -76,7 +76,8 @@ steps:
     key: "build_wheel"
     env:
       COMMAND: "bash .buildkite/ci/build_wheel.sh"
-      COMPUTE_CONFIG: ".buildkite/ci/compute-config-m5-8xlarge.yaml"
+      # COMPUTE_CONFIG: ".buildkite/ci/compute-config-m5-8xlarge.yaml"
+      COMPUTE_CONFIG: .buildkite/ci/compute-config-g5-2xlarge.yaml
       IMAGE: anyscale/ray:2.8.0-py39-cu121
     commands:
       - bash .buildkite/job_submit_buildkite.sh
