@@ -6,9 +6,11 @@ on:
   push:
     branches:
       - main
+      - oss-main
   pull_request:
     branches:
       - main
+      - oss-main
 jobs:
   yapf:
     runs-on: ubuntu-latest
