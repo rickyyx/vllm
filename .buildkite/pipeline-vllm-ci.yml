@@ -78,7 +78,7 @@ steps:
       COMMAND: "bash .buildkite/ci/build_wheel.sh"
       COMPUTE_CONFIG: ".buildkite/ci/compute-config-m5-8xlarge.yaml"
       # Uses ubunt 22.04.
-      IMAGE: anyscale/ray:2.12.0-py39-cu121
+      IMAGE: anyscale/ray:2.21.0-slim-py39-cu121
     commands:
       - bash .buildkite/job_submit_buildkite.sh
     retry:

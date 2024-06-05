@@ -11,6 +11,10 @@ VLLM_WHEEL="vllm-0.1.4-cp39-cp39-linux_x86_64.whl"
 rm -rf dist
 rm -rf build
 
+# Download cmake
+sudo apt-get update
+sudo apt-get install -y cmake
+
 echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
 BUILD_BAZEL=1 python setup.py bdist_wheel
 

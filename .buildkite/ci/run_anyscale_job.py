@@ -90,10 +90,8 @@ def _create_cluster_compute(cc_path: str):
     cc_file_hash = _file_hash(new_cc_path)
     cc_name = f"aviary-{cc_file_hash}"
 
-    _run(
-        f"anyscale compute-config get {cc_name} || "
-        f"anyscale compute-config create -n {cc_name} {new_cc_path}"
-    )
+    _run(f"anyscale compute-config get {cc_name} || "
+         f"anyscale compute-config create -n {cc_name} {new_cc_path}")
     return cc_name
 
 
@@ -117,10 +115,8 @@ def _create_cluster_env(
     with open(new_ce_file, "w") as f:
         f.write(ce_file)
     ce_name = f"aviary-{_file_hash(new_ce_file)}"
-    _run(
-        f"anyscale cluster-env get {ce_name} || anyscale "
-        f"cluster-env build -n {ce_name} {new_ce_file}"
-    )
+    _run(f"anyscale cluster-env get {ce_name} || anyscale "
+         f"cluster-env build -n {ce_name} {new_ce_file}")
     return ce_name
 
 
