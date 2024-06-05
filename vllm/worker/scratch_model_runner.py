@@ -235,9 +235,9 @@ class ScratchModelRunner:
             self.session_ids[session_id] = self.scratch.new_session()
             print(self.session_ids)
 
-        print(f"SANG-TODO {input_tokens=}")
-        # return self._execute_and_vllm_sample(is_prefill, input_tokens, session_id, parent_id, sampling_metadata)
-        return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_id)
+        # print(f"SANG-TODO {input_tokens=}")
+        return self._execute_and_vllm_sample(is_prefill, input_tokens, session_id, parent_id, sampling_metadata)
+        # return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_id)
 
     def _execute_and_vllm_sample(self, is_prefill: bool, input_tokens: List[int], session_id: int, parent_id: int, sampling_metadata: SamplingMetadata):
         input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
@@ -246,18 +246,15 @@ class ScratchModelRunner:
             self.model_config.get_hidden_size() * batch_size, device="cuda", dtype=torch.half)
         session_id = self.session_ids[session_id]
 
+        s = time.time()
         if is_prefill:
-            s = time.time()
             self.scratch.prefill(
                 session_id,
                 input_tokens_tensor.data_ptr(),
                 input_tokens_tensor.shape[0],
                 hidden_states.data_ptr()
             )
-            # print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
         else:
-            s = time.time()
-            print(f"SANG-TODO decode input= {input_tokens}")
             session_ids_tensor = torch.tensor([session_id], device="cuda", dtype=torch.int)
             self.scratch.decode(
                 session_ids_tensor.data_ptr(),
@@ -265,24 +262,26 @@ class ScratchModelRunner:
                 batch_size,
                 hidden_states.data_ptr(),
             )
-            # print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
+        print(f"SANG-TODO forward takes {(time.time() - s)* 1000} ms")
 
         # SANG-TODO remove it. Hack.
         sampling_metadata.selected_token_indices = torch.tensor([0], device="cuda", dtype=torch.int)
 
         logits = self.model.compute_logits(hidden_states.view(-1, self.model_config.get_hidden_size()), sampling_metadata)
-        if is_prefill:
-            print("SANG-TODO hidden_states after prefill:")
-            print(hidden_states)
-            print("SANG-TODO logits after prefill:")
-            print(logits)
+        # if is_prefill:
+        #     print("SANG-TODO hidden_states after prefill:")
+        #     print(hidden_states)
+        #     print("SANG-TODO logits after prefill:")
+        #     print(logits)
 
         output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        # print(f"SANG-TODO {output=}")
-        # print(f"SANG-TODO output_token {output.outputs[0].samples[0].output_token=}")
+        if is_prefill:
+            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
+        else:
+            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
         return output
 
     def _execute_and_scratch_sample(self, is_prefill: bool, input_tokens: List[int], session_id: object, parent_id: int):
