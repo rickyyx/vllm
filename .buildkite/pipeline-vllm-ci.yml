@@ -2,7 +2,8 @@ steps:
   - label: ":running: oss unit test"
     timeout: 3600
     env:
-      COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_unit_test.sh"
+      # Need VLLM_INSTALL_PUNICA_KERNELS=1 to build punica kernel which is used for lora tests.
+      COMMAND: "VLLM_INSTALL_PUNICA_KERNELS=1 bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_unit_test.sh"
       COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
     commands:
       - bash .buildkite/job_submit_buildkite.sh

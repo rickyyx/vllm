@@ -26,6 +26,8 @@ while [ "$#" -gt 0 ]; do
             ;;
         *)
     esac
+        echo "Invalid option: $1"
+        exit 1
 done
 
 _term() {
