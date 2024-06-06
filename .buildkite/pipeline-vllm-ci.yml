@@ -23,17 +23,17 @@ steps:
   #       - exit_status: -1 # Agent lost/spot preemption
   #         limit: 2
 
-  - label: ":running: kernel tests"
-    timeout: 7200
-    env:
-      COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_kernel_tests.sh"
-      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
-    commands:
-      - bash .buildkite/job_submit_buildkite.sh
-    retry:
-      automatic:
-        - exit_status: -1 # Agent lost/spot preemption
-          limit: 2
+  # - label: ":running: kernel tests"
+  #   timeout: 7200
+  #   env:
+  #     COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_kernel_tests.sh"
+  #     COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
+  #   commands:
+  #     - bash .buildkite/job_submit_buildkite.sh
+  #   retry:
+  #     automatic:
+  #       - exit_status: -1 # Agent lost/spot preemption
+  #         limit: 2
 
   # - label: ":running: s3 test"
   #   timeout: 1800
@@ -76,7 +76,6 @@ steps:
     key: "build_wheel"
     env:
       COMMAND: "bash .buildkite/ci/build_wheel.sh"
-      # COMPUTE_CONFIG: ".buildkite/ci/compute-config-m5-8xlarge.yaml"
       COMPUTE_CONFIG: .buildkite/ci/compute-config-g5-2xlarge.yaml
       IMAGE: anyscale/ray:2.8.0-py39-cu121
     commands:

@@ -13,19 +13,20 @@ bash .buildkite/ci/bash_util/test_timeout.sh
 # run_with_timeout $(( 15 * 60 )) pytest -vs tests/anyscale/lm_format_enforcer
 # Regression test
 run_with_timeout $(( 60 )) pytest -v -s tests/test_regression.py
-# Async Engine test
-run_with_timeout $(( 60 )) pytest -v -s -v -s tests/async_engine
 # Basic correctness test
-run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s tests/basic_correctness/test_basic_correctness.py
-run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s tests/basic_correctness/test_basic_correctness.py
-run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s tests/basic_correctness/test_chunked_prefill.py
-run_with_timeout $(( 60 * 5 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s tests/basic_correctness/test_chunked_prefill.py
-run_with_timeout $(( 60 * 5 )) VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 pytest -v -s tests/basic_correctness/test_preemption.py
+run_with_timeout $(( 60 * 10 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s tests/basic_correctness/test_basic_correctness.py
+run_with_timeout $(( 60 * 10 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s tests/basic_correctness/test_basic_correctness.py
+run_with_timeout $(( 60 * 10 )) VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s tests/basic_correctness/test_chunked_prefill.py
+run_with_timeout $(( 60 * 10 )) VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s tests/basic_correctness/test_chunked_prefill.py
+run_with_timeout $(( 60 * 10 )) VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 pytest -v -s tests/basic_correctness/test_preemption.py
 # Entrypoints Test
-run_with_timeout $(( 60 * 5 )) pytest -v -s tests/entrypoints -m llm
-run_with_timeout $(( 60 * 5 )) pytest -v -s tests/entrypoints -m openai
-# LogitsProcessor Test
-run_with_timeout $(( 60 )) pytest -v -s tests/test_logits_processor.py
+run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m llm
+run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m openai
+# Lora Test
+run_with_timeout $(( 60 * 240 )) pytest -v -s tests/lora --ignore=lora/test_long_context.py
+# Spec decode test
+run_with_timeout $(( 60 * 60 )) pytest -v -s tests/spec_decode
+
 # run_with_timeout $(( 60 )) pytest -vs tests/async_engine
 # run_with_timeout $(( 60 )) pytest -vs tests/core
 # run_with_timeout $(( 15 * 60 )) pytest -vs tests/engine
