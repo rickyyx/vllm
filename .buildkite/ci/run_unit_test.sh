@@ -14,11 +14,12 @@ bash .buildkite/ci/bash_util/test_timeout.sh
 # Regression test
 run_with_timeout $(( 60 )) pytest -v -s tests/test_regression.py
 # Basic correctness test
-VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_basic_correctness.py
-VLLM_ATTENTION_BACKEND=FLASH_ATTN run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_basic_correctness.py
-VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_chunked_prefill.py
-VLLM_ATTENTION_BACKEND=FLASH_ATTN run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_chunked_prefill.py
-VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_preemption.py
+# TODO(sang): Enable it after authentication.
+# VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_basic_correctness.py
+# VLLM_ATTENTION_BACKEND=FLASH_ATTN run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_basic_correctness.py
+# VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_chunked_prefill.py
+# VLLM_ATTENTION_BACKEND=FLASH_ATTN run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_chunked_prefill.py
+# VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 run_with_timeout $(( 60 * 10 )) pytest -v -s tests/basic_correctness/test_preemption.py
 # Entrypoints Test
 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m llm
 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m openai
