@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from vllm.anyscale import anyscale_envs
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
@@ -158,6 +159,13 @@ class ModelRunner:
         self.model_memory_usage = m.consumed_memory
         logger.info("Loading model weights took %.4f GB",
                     self.model_memory_usage / float(2**30))
+
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            logit_processor = getattr(self.model, "logits_processor", None)
+            assert logit_processor is not None
+            logit_processor.initialize(self.model_config.tokenizer)
+        # Anyscale end
 
         if self.lora_config:
             assert hasattr(self.model, "supported_lora_modules"
@@ -725,6 +733,13 @@ class ModelRunner:
 
         if self.lora_config:
             self.set_active_loras(lora_requests, lora_mapping)
+
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            logit_processor = getattr(self.model, "logits_processor", None)
+            assert logit_processor is not None
+            logit_processor.prepare(seq_group_metadata_list)
+        # Anyscale end
 
         # Currently cuda graph is only supported by the decode phase.
         prefill_meta = attn_metadata.prefill_metadata

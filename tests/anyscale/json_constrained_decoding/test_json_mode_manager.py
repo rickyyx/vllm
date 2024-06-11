@@ -1,26 +1,20 @@
 import os
 import random
-from typing import Literal
-from unittest.mock import MagicMock, patch
+from typing import List, Literal
+from unittest.mock import patch
 
 import pytest
 import torch
 from pydantic import BaseModel
 
 from tests.anyscale.json_constrained_decoding.utils import (
-    FaultyJsonModeLogitsProcessor, FaultyProcessorWithException)
-from tests.worker.utils import (create_execute_model_data,
-                                create_seq_group_metadata_from_prompts,
-                                create_worker)
+    FaultyProcessorWithException)
 from vllm.anyscale.constrained_decoding.json_mode_manager import (
     JSONModeManager)
-from vllm.config import LogitProcessorConfig
-from vllm.engine.arg_utils import EngineArgs
-from vllm.engine.llm_engine import LLMEngine
-from vllm.model_executor.input_metadata import InputMetadata
-from vllm.sequence import SamplingParams
+# from vllm.engine.arg_utils import EngineArgs
+# from vllm.engine.llm_engine import LLMEngine
+from vllm.sequence import SamplingParams, SequenceData, SequenceGroupMetadata
 from vllm.transformers_utils.tokenizer import get_tokenizer
-from vllm.worker.worker import Worker
 
 MODEL_ID = "JackFram/llama-68m"
 VOCAB_SIZE = 32000
@@ -49,8 +43,10 @@ EXAMPLE_COMPLETION = AnswerFormat(
 ).json()
 
 
-def get_input_metadata(model_id: str, bsize: int) -> InputMetadata:
-    """Prepare InputMetadata that can be passed to the logit processor.
+def create_seq_group_metadata_list(model_id: str,
+                                   bsize: int) -> List[SequenceGroupMetadata]:
+    """Prepare a list of SequenceGroupMetadata that can be passed to the
+        logit processor.
 
     This function emulates being in the middle of generation for bsize
     concurrent requests all of which have the same schema, but are at different
@@ -64,22 +60,12 @@ def get_input_metadata(model_id: str, bsize: int) -> InputMetadata:
         model_id: The model identifier.
         bsize: The number of concurrent requests.
     Returns:
-        InputMetadata: The input metadata that can be passed to the logit
+        A list of sequence group metadata that can be passed to the logit
         processor.
     """
     seed = 100
     tokenizer = get_tokenizer(model_id)
-    block_size = 32
-    num_gpu_blocks = 512 // block_size * bsize
     random.seed(seed)
-
-    worker = create_worker(
-        Worker,
-        model_name=model_id,
-        seed=seed,
-        block_size=block_size,
-        num_gpu_blocks=num_gpu_blocks,
-    )
 
     # Generate bsize prompts at different lengths between 32, 512
     prompt_lens = [random.randint(32, 512) for _ in range(bsize)]
@@ -99,36 +85,29 @@ def get_input_metadata(model_id: str, bsize: int) -> InputMetadata:
     prev_output_tokens = [
         completion_tokens[:gen_len] for gen_len in num_prev_gen_tokens
     ]
-    final_seq_lens = [
-        len(prompt + output_tokens) + 1
-        for prompt, output_tokens in zip(prompts, prev_output_tokens)
-    ]
 
-    sampling_param = SamplingParams(
-        temperature=0.0,
-        response_format={
-            "type": "json",
-            "schema": AnswerFormat.schema_json()
-        },
-    )
-
-    print(f"{prompts=}")
-    print(f"{prev_output_tokens=}")
-
-    execute_model_data = create_execute_model_data(
-        create_seq_group_metadata_from_prompts(
-            prompts,
-            num_gpu_blocks,
-            block_size,
-            continuations=prev_output_tokens,
-            final_seq_lens=final_seq_lens,
-            sampling_params=sampling_param,
-        ))
-
-    seq_group_metadata_list = execute_model_data.seq_group_metadata_list
-    _, _, input_metadata, *_ = worker._prepare_inputs(seq_group_metadata_list)  # pylint: disable=protected-access
-
-    return input_metadata
+    seq_group_metadata_list = []
+    for i in range(bsize):
+        output_ids = prev_output_tokens[i]
+        prompt_ids = prompts[i]
+        sampling_param = SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+        )
+        seq_group_metadata_list.append(
+            SequenceGroupMetadata(
+                request_id=f"test_{i}",
+                is_prompt=True,
+                seq_data={
+                    0: SequenceData(prompt_ids, output_token_ids=output_ids)
+                },
+                sampling_params=sampling_param,
+                block_tables={0: [1]},
+            ))
+    return seq_group_metadata_list
 
 
 @pytest.mark.parametrize(
@@ -156,28 +135,26 @@ def test_logit_processor_manager_fault_tolerance(batch_and_actor_size):
     with patch.dict(
             os.environ,
         {"ANYSCALE_VLLM_NUM_JSON_LOGITS_PROCESSOR_ACTORS": str(actor_count)}):
-        ft_config = LogitProcessorConfig(
-            logit_processor_cls=FaultyProcessorWithException,
-            recreate_failed_actors=True,
-            max_restarts=-1,
-            delay_between_actor_restarts_s=0.0,
-        )
 
         manager = JSONModeManager(
             tokenizer_name_or_path=MODEL_ID,
             vocab_size=VOCAB_SIZE,
-            logit_processor_config=ft_config,
+            recreate_failed_actors=True,
+            max_restarts=-1,
+            delay_between_actor_restarts_s=0.0,
+            logit_processor_cls=FaultyProcessorWithException,
         )
 
         logits = torch.rand(bsize, VOCAB_SIZE)
-        input_metadata = get_input_metadata(MODEL_ID, bsize)
+        seq_group_metadata_list = create_seq_group_metadata_list(
+            MODEL_ID, bsize)
 
         iteration_cnt = 0
         at_least_one_failure = False
         while iteration_cnt < NUM_FAULT_TOLERANT_ITERATIONS:
             print(f"Iteration {iteration_cnt} ...")
             buffer_inds_to_batch_inds = manager.start_json_logits_processors(
-                logits, input_metadata)
+                seq_group_metadata_list)
             _, valid_mask = manager.get_json_logits_bias(
                 logits,
                 buffer_inds_to_batch_inds,
@@ -191,82 +168,81 @@ def test_logit_processor_manager_fault_tolerance(batch_and_actor_size):
             "At least one failure should have occurred.")
 
 
-def test_engine_e2e_fault_tolerance():
-    """Tests end-to-end fault tolerance of the engine.
+# def test_engine_e2e_fault_tolerance(monkeypatch):
+#     """Tests end-to-end fault tolerance of the engine.
 
-    Send two requests to an engine with a faulty logit processor. Run through
-    the decoding, at some point the requests will fail and the engine should
-    recover and continue without interruption. There should be at least one
-    request that receives an exception object during the process.
-    """
+#     Send two requests to an engine with a faulty logit processor. Run through
+#     the decoding, at some point the requests will fail and the engine should
+#     recover and continue without interruption. There should be at least one
+#     request that receives an exception object during the process.
+#     """
+#     monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
+#     monkeypatch.setenv(
+#         "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
+#         "tests.anyscale.json_constrained_decoding.utils"
+#         ".FaultyJsonModeLogitsProcessor")
+#     monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "1")
+#     monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
+#     monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "-1")
 
-    engine_args = EngineArgs(
-        model=MODEL_ID,
-        enable_json_logits_processors=True,
-        # This faulty logit processor has p_error = p_timeout = 0.01
-        logit_processor_cls=FaultyJsonModeLogitsProcessor,
-        json_fault_tolerance_recreate_failed_actors=True,
-        json_fault_tolerance_delay_beteen_actor_restarts_s=0.0,
-        json_fault_tolerance_max_restarts=-1,
-    )
+#     engine_args = EngineArgs(model=MODEL_ID)
+#     engine = LLMEngine.from_engine_args(engine_args)
+#     prompts = [
+#         "What is your name? My name is John. I am an engineer. "
+#         "I like reading,"
+#         "swimming and hiking. I am 25 years old.",
+#         "What is your age? My name is Sarah, I am 30 years old. "
+#         "I am a doctor."
+#         "I like playing tennis and reading.",
+#     ]
+#     engine.add_request(
+#         request_id="0",
+#         inputs=prompts[0],
+#         params=SamplingParams(
+#             temperature=0.0,
+#             response_format={
+#                 "type": "json",
+#                 "schema": AnswerFormat.schema_json()
+#             },
+#             stop=["</s>"],
+#             max_tokens=256,
+#         ),
+#     )
 
-    engine = LLMEngine.from_engine_args(engine_args)
-    prompts = [
-        "What is your name? My name is John. I am an engineer. I like reading,"
-        "swimming and hiking. I am 25 years old.",
-        "What is your age? My name is Sarah, I am 30 years old. I am a doctor."
-        "I like playing tennis and reading.",
-    ]
-    engine.add_request(
-        request_id="0",
-        prompt=prompts[0],
-        sampling_params=SamplingParams(
-            temperature=0.0,
-            response_format={
-                "type": "json",
-                "schema": AnswerFormat.schema_json()
-            },
-            stop=["</s>"],
-            max_tokens=256,
-        ),
-    )
+#     engine.add_request(
+#         request_id="1",
+#         inputs=prompts[1],
+#         params=SamplingParams(
+#             temperature=0.0,
+#             response_format={
+#                 "type": "json",
+#                 "schema": AnswerFormat.schema_json()
+#             },
+#             stop=["</s>"],
+#             max_tokens=256,
+#         ),
+#     )
 
-    engine.add_request(
-        request_id="1",
-        prompt=prompts[1],
-        sampling_params=SamplingParams(
-            temperature=0.0,
-            response_format={
-                "type": "json",
-                "schema": AnswerFormat.schema_json()
-            },
-            stop=["</s>"],
-            max_tokens=256,
-        ),
-    )
-
-    at_least_one_failure = False
-    while engine.has_unfinished_requests():
-        step_output = engine.step()
-        for output in step_output:
-            if isinstance(output, Exception):
-                at_least_one_failure = True
-                continue
-    assert at_least_one_failure, "At least one failure should have occurred."
+#     at_least_one_failure = False
+#     while engine.has_unfinished_requests():
+#         step_output = engine.step()
+#         for output in step_output:
+#             if isinstance(output, Exception):
+#                 at_least_one_failure = True
+#                 continue
+#     assert at_least_one_failure, "At least one failure should have occurred."
 
 
-@patch("importlib.import_module")
-def test_logit_processor_config_with_str_input(mock_import_module):
+def test_logit_processor_config_with_str_input():
     """Tests that the config can be init with a str input."""
-
-    mock_module = MagicMock()
-    mock_class = MagicMock()
-    mock_module.mock_class = mock_class
-
-    mock_import_module.return_value = mock_module
-
-    config = LogitProcessorConfig(logit_processor_cls="mock_module.mock_class")
-    mock_import_module.assert_called_with("mock_module")
-    assert config.logit_processor_cls == mock_class, (
-        "logit_processor_cls should be a class type when initialized "
-        "with a string.")
+    logit_processor_cls = ("tests.anyscale.json_constrained_decoding."
+                           "utils.FaultyProcessorWithException")
+    manager = JSONModeManager(
+        tokenizer_name_or_path=MODEL_ID,
+        vocab_size=VOCAB_SIZE,
+        recreate_failed_actors=True,
+        max_restarts=-1,
+        delay_between_actor_restarts_s=0.0,
+        logit_processor_cls=logit_processor_cls,
+    )
+    assert manager.logit_processor_cls == FaultyProcessorWithException

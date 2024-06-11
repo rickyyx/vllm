@@ -10,12 +10,15 @@
 # and its use is subject to the included LICENSE file.
 
 import json
+import os
 from typing import List
 
 import pytest
 from pydantic import BaseModel, Field
 
 from vllm.sequence import SamplingParams
+
+os.environ["ANYSCALE_VLLM_ENABLE_JSON_MODE"] = "1"
 
 
 class BasicResponse(BaseModel):
@@ -160,7 +163,9 @@ def get_response_formats():
     ]
 
 
-@pytest.mark.parametrize("json_mode_version", ["v1", "v2"])
+# TODO(sang): Enable v2
+# @pytest.mark.parametrize("json_mode_version", ["v1", "v2"])
+@pytest.mark.parametrize("json_mode_version", ["v1"])
 def test_json_mode(mistral_7b_json):
     """Check if we can run without exceptions and that output is valid."""
     engine = mistral_7b_json

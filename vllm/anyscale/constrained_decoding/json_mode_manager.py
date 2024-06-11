@@ -1,9 +1,10 @@
+import importlib
 import logging
 import math
 import os
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Type, Union
 
 import msgspec
 import numpy as np
@@ -11,17 +12,15 @@ import ray
 import torch
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
+from vllm.anyscale.constrained_decoding.fault_tolerance import FaultAwareDaemon
 from vllm.anyscale.constrained_decoding.logits_processor import (
-    JSONLogitsProcessorInput, JSONLogitsProcessorInputV2,
-    JSONModeLogitsProcessor, JSONModeLogitsProcessorV2)
+    JSONLogitsProcessorInput, JSONModeLogitsProcessor,
+    JSONModeLogitsProcessorV2)
 from vllm.anyscale.shm.msgspec_shm import (RayEvent, SharedMemoryManager,
                                            SharedMemoryReadDataError,
                                            SharedMsgspecBufferWithEvent)
 from vllm.anyscale.shm.numpy import numpy_encode_hook, numpy_ext_hook
-from vllm.config import LogitProcessorConfig
-
-if TYPE_CHECKING:
-    from vllm.model_executor.input_metadata import InputMetadata
+from vllm.sequence import SequenceGroupMetadata
 
 MIN_ROWS_PER_JSON_LOGITS_PROCESSOR = int(
     os.getenv("ANYSCALE_VLLM_MIN_ROWS_PER_JSON_LOGITS_PROCESSOR", "1"))
@@ -48,9 +47,6 @@ class JSONLogitsProcessorPayload:
     # JSON schema for the sequence (shared across the group)
     # This can be any valid JSON schema
     schema: str
-    # The indices of the top_k logits for the group
-    # It will be an empty list if the sequence is not in fast mode
-    topk_logits_inds: List[int]
 
     # A unique identifier corresponding to this payload.
     # This is for example request_id from the server side.
@@ -58,10 +54,10 @@ class JSONLogitsProcessorPayload:
     payload_id: Optional[str] = None
 
     @staticmethod
-    def get_payload_id(input_metadata: "InputMetadata",
+    def get_payload_id(seq_group_metadata: SequenceGroupMetadata,
                        seq_id: int) -> Optional[str]:
         """Returns a payload id given the input_metadata and seq_id."""
-        req_id = input_metadata.request_id_data.get(seq_id, "")
+        req_id = seq_group_metadata.request_id
         if req_id:
             return f"{req_id}_{seq_id}"
         return None
@@ -72,10 +68,11 @@ class JSONModeManager:
     def __init__(self,
                  tokenizer_name_or_path: str,
                  vocab_size: int,
-                 logit_processor_config: LogitProcessorConfig,
-                 shared_mem_event: Optional[RayEvent] = None,
-                 enable_json_processor_fast_mode: bool = False,
-                 json_processor_fast_mode_num_top_logits: int = 10,
+                 recreate_failed_actors: bool = True,
+                 max_restarts: int = 5,
+                 delay_between_actor_restarts_s: int = 0.0,
+                 logit_processor_cls: Optional[Union[
+                     str, Type[FaultAwareDaemon]]] = None,
                  use_v2: bool = False,
                  json_processor_num_workers: int = 1) -> None:
         """Initializes the json mode manager.
@@ -120,16 +117,15 @@ class JSONModeManager:
         Args:
             tokenizer_name_or_path: The name or path of the tokenizer to use.
             vocab_size: The size of the vocabulary.
-            logit_processor_config: The configuration for the logit processor.
-                This config includes knobs for the fault-tolerance behavior.
-            shared_mem_event: The shared memory event to use for the
-                `SharedMsgspecBufferWithEvent`. If not provided, a new event
-                will be created. Read the docs for
-                `SharedMsgspecBufferWithEvent` for more details.
-            enable_json_processor_fast_mode: Whether to enable fast mode for
-                the json logits processor.
-            json_processor_fast_mode_num_top_logits: In fast mode, the number
-                of top logits to send to the processor.
+            recreate_failed_actors: If True, it restarts failed actor
+                processes.
+            max_restarts: Max number of actors to restart upon failures.
+            delay_between_actor_restarts_s: Time it waits until it restarts
+                new actors.
+            logit_processor_cls: The logit processor class to use.
+                JsonModeManager creates multiple replicas of a given logit
+                processors. If it is passed via string, it imports the class
+                from a given path.
             use_v2: Whether to use the v2 version of the json logits processor.
                 This is the in-house version of the grammar enforcer. v1 is the
                 version that is based on lm-format enforcer.
@@ -139,17 +135,24 @@ class JSONModeManager:
         """
 
         self._use_v2 = use_v2
-        self._enable_json_processor_fast_mode = enable_json_processor_fast_mode
-        self._json_processor_fast_mode_num_top_logits = (
-            json_processor_fast_mode_num_top_logits)
         self._has_sent_payload = False
+
+        # TODO(sang): Allow v2.
+        if self._use_v2:
+            raise ValueError("JsonModeManager V2 is not working yet.")
 
         default_logit_processor_cls = (JSONModeLogitsProcessorV2
                                        if use_v2 else JSONModeLogitsProcessor)
-        logit_processor_cls = (logit_processor_config.logit_processor_cls
-                               or default_logit_processor_cls)
-        self._should_be_fault_tolerant = (
-            logit_processor_config.recreate_failed_actors)
+
+        # Import if logit_processor_cls is a string.
+        if isinstance(logit_processor_cls, str):
+            module_name, class_name = logit_processor_cls.rsplit(".", 1)
+            module = importlib.import_module(module_name)
+            logit_processor_cls = getattr(module, class_name)
+
+        self.logit_processor_cls = (logit_processor_cls
+                                    or default_logit_processor_cls)
+        self._should_be_fault_tolerant = recreate_failed_actors
 
         # Logit Processor Actors and their input / output buffers
         self._json_mode_logits_processors = []
@@ -163,12 +166,9 @@ class JSONModeManager:
                                      Tuple[SharedMsgspecBufferWithEvent,
                                            SharedMsgspecBufferWithEvent]] = {}
 
-        if self._enable_json_processor_fast_mode:
-            logger.info("Enabling fast mode for json logits processor.")
-
         # This is imported here to avoid circular imports.
         # deps: this -> model_executor -> models -> sampler -> this
-        from vllm.distributed.parallel_state import (  # pylint: disable=import-outside-toplevel
+        from vllm.distributed import (  # pylint: disable=import-outside-toplevel
             get_tensor_model_parallel_rank,
             get_tensor_model_parallel_world_size,
             model_parallel_is_initialized)
@@ -184,13 +184,9 @@ class JSONModeManager:
             self._shared_mem_manager = SharedMemoryManager()
             self._shared_mem_manager.start()  # pylint: disable=consider-using-with
 
-            if shared_mem_event is None:
-                self._shared_mem_event = RayEvent.options(
-                    num_cpus=0,
-                    scheduling_strategy=current_node_scheduling_strategy
-                ).remote()
-            else:
-                self._shared_mem_event = shared_mem_event
+            self._shared_mem_event = RayEvent.options(
+                num_cpus=0,
+                scheduling_strategy=current_node_scheduling_strategy).remote()
 
             # Initialize shared memory buffers,
             # one input and one output for each processor worker
@@ -229,12 +225,12 @@ class JSONModeManager:
                 "input: %s output: %s", input_buffer_ids, output_buffer_ids)
 
             extra_ray_kwargs = {}
-            if logit_processor_config.recreate_failed_actors:
+            if recreate_failed_actors:
                 extra_ray_kwargs = {
-                    "max_restarts": logit_processor_config.max_restarts,
+                    "max_restarts": max_restarts,
                 }
 
-            remote_cls = ray.remote(logit_processor_cls).options(
+            remote_cls = ray.remote(self.logit_processor_cls).options(
                 num_cpus=0,
                 scheduling_strategy=current_node_scheduling_strategy,
                 **extra_ray_kwargs,
@@ -243,10 +239,9 @@ class JSONModeManager:
                 remote_cls.remote(
                     tokenizer_name_or_path,
                     vocab_size,
-                    recreate_failed_actors=(
-                        logit_processor_config.recreate_failed_actors),
+                    recreate_failed_actors=recreate_failed_actors,
                     delay_between_actor_restarts_s=(
-                        logit_processor_config.delay_between_actor_restarts_s))
+                        delay_between_actor_restarts_s))
                 for _ in range(json_processor_num_workers)
             ]
 
@@ -397,32 +392,19 @@ class JSONModeManager:
         return ordered_healthy_buffer_inds
 
     def start_json_logits_processors(
-            self, logits: torch.Tensor,
-            input_metadata: "InputMetadata") -> Dict[int, List[int]]:
+        self, seq_group_metadata_list: List[SequenceGroupMetadata]
+    ) -> Dict[int, List[int]]:
         """Start JSON processors by sending them new data. Non-blocking.
 
         See `Sampler.start_json_logits_processors` for more information.
-        In case of fast mode, this will block because of the CPU<->GPU sync.
 
         Fault-tolerance behavior: If a dead actor is detected it will pause
         until that actor is healthy again (up to some timeout time).
         """
-
-        topk_logits_inds = None
-        if self._enable_json_processor_fast_mode:
-            _, topk_logits_inds = torch.topk(
-                logits, self._json_processor_fast_mode_num_top_logits, dim=1)
-
-            # This will force a premature CPU<->GPU sync!
-            # TODO(yard1): See if we can make this non-blocking
-            # (probably not, but who knows!)
-            topk_logits_inds = topk_logits_inds.tolist()
-
         # buffer_inds_to_batch_inds -> allows us to later match
         # returned data back to the logits tensor
         buffer_inds_to_batch_inds = {}
-        payloads = self._get_processor_payloads(
-            input_metadata, topk_logits_inds=topk_logits_inds)
+        payloads = self._get_processor_payloads(seq_group_metadata_list)
 
         healthy_buffer_inds = (
             self._restart_unhealthy_actors_and_get_healthy_buffers())
@@ -512,29 +494,29 @@ class JSONModeManager:
 
     def _convert_payloads_to_processor_input(
         self, payloads: List[JSONLogitsProcessorPayload]
-    ) -> Union[JSONLogitsProcessorInput, JSONLogitsProcessorInputV2]:
+        # ) -> Union[JSONLogitsProcessorInput, JSONLogitsProcessorInputV2]:
+    ) -> JSONLogitsProcessorInput:
         """Converts the payloads to the input for the json logits processors."""
 
-        if self._use_v2:
-            input_list = []
-            for payload in payloads:
-                input_list.append((payload.output_token_ids, payload.schema,
-                                   payload.payload_id))
+        # if self._use_v2:
+        #     input_list = []
+        #     for payload in payloads:
+        #         input_list.append((payload.output_token_ids, payload.schema,
+        #                            payload.payload_id))
 
-            return JSONLogitsProcessorInputV2(input_list=input_list)
-        return JSONLogitsProcessorInput(input_list=[(p.output_token_ids,
-                                                     p.schema,
-                                                     p.topk_logits_inds)
-                                                    for p in payloads])
+        #     return JSONLogitsProcessorInputV2(input_list=input_list)
+        return JSONLogitsProcessorInput(input_list=[(
+            p.output_token_ids,
+            p.schema,
+        ) for p in payloads])
 
     def _get_processor_payloads(
         self,
-        input_metadata: "InputMetadata",
-        topk_logits_inds: Optional[List[List[int]]] = None
+        seq_group_metadata_list: List[SequenceGroupMetadata],
     ) -> List[JSONLogitsProcessorPayload]:
         """Get the payload to send to the json logits processors.
 
-        Convert the input metadata into per-sequence payload to send to the
+        Convert the input into per-sequence payload to send to the
         processor workers. Payload is a unit of data that is sent to the json
         processor workers to compute the mask for the logits. We will then
         distribute these payloads to the workers in equal chunks via the shared
@@ -545,9 +527,8 @@ class JSONModeManager:
         from the previous call.
 
         Args:
-            input_metadata: The input metadata for the current batch.
-            top_k_logits_inds: The indices of the top k logits for each
-                sequence. This is used in the fast mode.
+            seq_group_metadata_list: A list of sequence group to generate
+                per-sequence payload to send to the json processor worker.
 
         Returns:
             A list of payloads to send to the json processor workers.
@@ -561,7 +542,9 @@ class JSONModeManager:
         # they are long (> 1 ms).
 
         # For every group...
-        for seq_ids, sampling_params in input_metadata.seq_groups:
+        for seq_group_metadata in seq_group_metadata_list:
+            sampling_params = seq_group_metadata.sampling_params
+            seq_ids = list(seq_group_metadata.seq_data.keys())
             # It is already validated int SamplingParam's postint that
             # response_format is a dict with a schema key
             if sampling_params.response_format:
@@ -571,23 +554,21 @@ class JSONModeManager:
                 # Each sequence group can contain multiple sequences.
                 # We are operating on a per-sequence basis.
                 for i, seq_id in enumerate(seq_ids):
-                    seq_data = input_metadata.seq_data[seq_id]
+                    seq_data = seq_group_metadata.seq_data[seq_id]
                     output_tokens = seq_data.get_output_token_ids()
-                    payload_topk_inds = (topk_logits_inds[i]
-                                         if topk_logits_inds else [])
 
                     payload_id = JSONLogitsProcessorPayload.get_payload_id(
-                        input_metadata, seq_id=seq_id)
+                        seq_group_metadata, seq_id=seq_id)
 
                     payloads.append(
                         JSONLogitsProcessorPayload(
                             logit_row_index=logits_row_idx + i,
                             output_token_ids=output_tokens,
                             schema=json_schema,
-                            topk_logits_inds=payload_topk_inds,
                             payload_id=payload_id))
 
             # Advance the row index by the length of sequence
+            # TODO(sang): This is not working with chunked prefill yet.
             logits_row_idx += len(seq_ids)
 
         # Sort by schema to colocate as much as possible
