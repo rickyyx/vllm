@@ -330,6 +330,12 @@ class SamplingParams:
             raise ValueError("response_format must be a dictionary, got "
                              f"{self.response_format}.")
 
+        # Anyscale start
+        if self.prompt_logprobs is not None:
+            raise ValueError("Prompt logprobs is not supported with JSON "
+                             "mode/function calling.")
+        # Anyscale end
+
         if self.top_k != -1:
             raise ValueError(
                 "top_k must be -1 when using JSON mode/function calling,"

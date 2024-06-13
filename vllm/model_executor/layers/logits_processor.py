@@ -229,8 +229,10 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
 
     def forward(
         self,
-        *args,
-        **kwargs,
+        embedding: torch.Tensor,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+        embedding_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Compute logits and apply the json logit processor.
 
@@ -239,11 +241,24 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
         failure.
         """
         logits = super().forward(
-            *args,
-            **kwargs,
+            embedding,
+            hidden_states,
+            sampling_metadata,
+            embedding_bias,
         )
-        self._apply_json_logits_processor(logits)
-        return logits
+
+        json_mask_success = self._apply_json_logits_processor(logits)
+
+        # Find failed sequence groups.
+        failed_seq_group_indices = None
+        if json_mask_success is not None:
+            failed_seq_group_indices = []
+            for i, seq_group in enumerate(sampling_metadata.seq_groups):
+                sample_indices = seq_group.sample_indices
+                if not json_mask_success[sample_indices].all():
+                    failed_seq_group_indices.append(i)
+
+        return logits, failed_seq_group_indices
 
 
 if anyscale_envs.ENABLE_JSON_MODE:

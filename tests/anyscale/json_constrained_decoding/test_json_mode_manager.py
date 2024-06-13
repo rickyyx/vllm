@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 from typing import List, Literal
@@ -11,8 +12,10 @@ from tests.anyscale.json_constrained_decoding.utils import (
     FaultyProcessorWithException)
 from vllm.anyscale.constrained_decoding.json_mode_manager import (
     JSONModeManager)
-# from vllm.engine.arg_utils import EngineArgs
-# from vllm.engine.llm_engine import LLMEngine
+from vllm.anyscale.exceptions import RequestFailedError
+from vllm.engine.arg_utils import AsyncEngineArgs, EngineArgs
+from vllm.engine.async_llm_engine import AsyncLLMEngine
+from vllm.engine.llm_engine import LLMEngine
 from vllm.sequence import SamplingParams, SequenceData, SequenceGroupMetadata
 from vllm.transformers_utils.tokenizer import get_tokenizer
 
@@ -168,69 +171,181 @@ def test_logit_processor_manager_fault_tolerance(batch_and_actor_size):
             "At least one failure should have occurred.")
 
 
-# def test_engine_e2e_fault_tolerance(monkeypatch):
-#     """Tests end-to-end fault tolerance of the engine.
+@pytest.mark.asyncio
+async def test_json_mode_manager_raise_exception(monkeypatch):
+    """Verify failure to obtain json mode mask raises an exception.
+    """
+    monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
+    monkeypatch.setenv(
+        "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
+        "tests.anyscale.json_constrained_decoding.utils"
+        ".FaultyProcessorWithErrorsAllTheTime")
+    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
+    monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "0")
 
-#     Send two requests to an engine with a faulty logit processor. Run through
-#     the decoding, at some point the requests will fail and the engine should
-#     recover and continue without interruption. There should be at least one
-#     request that receives an exception object during the process.
-#     """
-#     monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
-#     monkeypatch.setenv(
-#         "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
-#         "tests.anyscale.json_constrained_decoding.utils"
-#         ".FaultyJsonModeLogitsProcessor")
-#     monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "1")
-#     monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
-#     monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "-1")
+    engine_args = AsyncEngineArgs(model=MODEL_ID)
+    engine = AsyncLLMEngine.from_engine_args(engine_args)
+    prompts = [
+        "What is your name? My name is John. I am an engineer. "
+        "I like reading,"
+        "swimming and hiking. I am 25 years old.",
+        "What is your age? My name is Sarah, I am 30 years old. "
+        "I am a doctor."
+        "I like playing tennis and reading.",
+    ]
+    stream = await engine.add_request(
+        request_id="0",
+        inputs=prompts[0],
+        params=SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+            stop=["</s>"],
+            max_tokens=256,
+        ),
+    )
 
-#     engine_args = EngineArgs(model=MODEL_ID)
-#     engine = LLMEngine.from_engine_args(engine_args)
-#     prompts = [
-#         "What is your name? My name is John. I am an engineer. "
-#         "I like reading,"
-#         "swimming and hiking. I am 25 years old.",
-#         "What is your age? My name is Sarah, I am 30 years old. "
-#         "I am a doctor."
-#         "I like playing tennis and reading.",
-#     ]
-#     engine.add_request(
-#         request_id="0",
-#         inputs=prompts[0],
-#         params=SamplingParams(
-#             temperature=0.0,
-#             response_format={
-#                 "type": "json",
-#                 "schema": AnswerFormat.schema_json()
-#             },
-#             stop=["</s>"],
-#             max_tokens=256,
-#         ),
-#     )
+    with pytest.raises(RequestFailedError):
+        async for request_output in stream:
+            print(request_output)
 
-#     engine.add_request(
-#         request_id="1",
-#         inputs=prompts[1],
-#         params=SamplingParams(
-#             temperature=0.0,
-#             response_format={
-#                 "type": "json",
-#                 "schema": AnswerFormat.schema_json()
-#             },
-#             stop=["</s>"],
-#             max_tokens=256,
-#         ),
-#     )
 
-#     at_least_one_failure = False
-#     while engine.has_unfinished_requests():
-#         step_output = engine.step()
-#         for output in step_output:
-#             if isinstance(output, Exception):
-#                 at_least_one_failure = True
-#                 continue
-#     assert at_least_one_failure, "At least one failure should have occurred."
+@pytest.mark.asyncio
+async def test_json_mode_manager_raise_exception_failure_only(monkeypatch):
+    """Verify only a failed seq group raises an exception.
+
+    ProcessorFailFirstRank fails requests coming to the first rank
+    logit processor. The test batches 2 requests, and the first
+    request is expected to fail because it is sent to the first rank
+    logit processor. The test relies on that batch is sent to different
+    logit processors in an ascending order.
+    """
+    monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
+    monkeypatch.setenv(
+        "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
+        "tests.anyscale.json_constrained_decoding.utils"
+        ".ProcessorFailFirstRank")
+    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
+    monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_NUM_PROCESSOR_WORKERS", "2")
+
+    engine_args = AsyncEngineArgs(model=MODEL_ID)
+    engine = AsyncLLMEngine.from_engine_args(engine_args)
+    prompts = [
+        "What is your name? My name is John. I am an engineer. "
+        "I like reading,"
+        "swimming and hiking. I am 25 years old.",
+        "What is your age? My name is Sarah, I am 30 years old. "
+        "I am a doctor."
+        "I like playing tennis and reading.",
+    ]
+
+    # Batch 2 requests.
+    first_req = engine.add_request(
+        request_id="1",
+        inputs=prompts[0],
+        params=SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+            stop=["</s>"],
+            max_tokens=256,
+        ),
+    )
+    second_req = engine.add_request(
+        request_id="2",
+        inputs=prompts[1],
+        params=SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+            stop=["</s>"],
+            max_tokens=256,
+        ),
+    )
+    stream1, stream2 = await asyncio.gather(first_req, second_req)
+    # First request should fail because it sends the request to the
+    # first actor that is supposed to fail ProcessorFailFirstRank.
+    with pytest.raises(RequestFailedError):
+        async for request_output in stream1:
+            assert request_output.error is None
+
+    # Second request should succeeds.
+    async for request_output in stream2:
+        print(request_output)
+
+
+def test_engine_e2e_fault_tolerance(monkeypatch):
+    """Tests end-to-end fault tolerance of the engine.
+
+    Send two requests to an engine with a faulty logit processor. Run through
+    the decoding, at some point the requests will fail and the engine should
+    recover and continue without interruption. There should be at least one
+    request that receives an exception object during the process.
+    """
+    monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
+    monkeypatch.setenv(
+        "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
+        "tests.anyscale.json_constrained_decoding.utils"
+        ".FaultyJsonModeLogitsProcessor")
+    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "1")
+    monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
+    monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "-1")
+
+    engine_args = EngineArgs(model=MODEL_ID)
+    engine = LLMEngine.from_engine_args(engine_args)
+    prompts = [
+        "What is your name? My name is John. I am an engineer. "
+        "I like reading,"
+        "swimming and hiking. I am 25 years old.",
+        "What is your age? My name is Sarah, I am 30 years old. "
+        "I am a doctor."
+        "I like playing tennis and reading.",
+    ]
+    engine.add_request(
+        request_id="0",
+        inputs=prompts[0],
+        params=SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+            stop=["</s>"],
+            max_tokens=256,
+        ),
+    )
+
+    engine.add_request(
+        request_id="1",
+        inputs=prompts[1],
+        params=SamplingParams(
+            temperature=0.0,
+            response_format={
+                "type": "json",
+                "schema": AnswerFormat.schema_json()
+            },
+            stop=["</s>"],
+            max_tokens=256,
+        ),
+    )
+
+    at_least_one_failure = False
+    while engine.has_unfinished_requests():
+        step_output = engine.step()
+        for output in step_output:
+            if isinstance(output.error, Exception):
+                at_least_one_failure = True
+                continue
+    assert at_least_one_failure, "At least one failure should have occurred."
 
 
 def test_logit_processor_config_with_str_input():

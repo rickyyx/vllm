@@ -76,6 +76,8 @@ class RequestOutput:
         finished: Whether the whole request is finished.
         metrics: Metrics associated with the request.
         lora_request: The LoRA request that was used to generate the output.
+        error: The error exception if the sequence has errored during
+            generation.
     """
 
     def __init__(
@@ -88,6 +90,7 @@ class RequestOutput:
         finished: bool,
         metrics: Optional[RequestMetrics] = None,
         lora_request: Optional[LoRARequest] = None,
+        error: Optional[BaseException] = None,
     ) -> None:
         self.request_id = request_id
         self.prompt = prompt
@@ -97,9 +100,13 @@ class RequestOutput:
         self.finished = finished
         self.metrics = metrics
         self.lora_request = lora_request
+        self.error = error
 
     @classmethod
-    def from_seq_group(cls, seq_group: SequenceGroup) -> "RequestOutput":
+    def from_seq_group(
+            cls,
+            seq_group: SequenceGroup,
+            error: Optional[BaseException] = None) -> "RequestOutput":
         if seq_group.sampling_params is None:
             raise ValueError(
                 "Sampling parameters are missing for a CompletionRequest.")
@@ -140,14 +147,17 @@ class RequestOutput:
         finished = seq_group.is_finished()
         finished_time = time.time() if finished else None
         seq_group.set_finished_time(finished_time)
-        return cls(seq_group.request_id,
-                   prompt,
-                   prompt_token_ids,
-                   prompt_logprobs,
-                   outputs,
-                   finished,
-                   seq_group.metrics,
-                   lora_request=seq_group.lora_request)
+        return cls(
+            seq_group.request_id,
+            prompt,
+            prompt_token_ids,
+            prompt_logprobs,
+            outputs,
+            finished,
+            seq_group.metrics,
+            lora_request=seq_group.lora_request,
+            error=error,
+        )
 
     def __repr__(self) -> str:
         return (f"RequestOutput(request_id={self.request_id}, "
@@ -157,7 +167,8 @@ class RequestOutput:
                 f"outputs={self.outputs}, "
                 f"finished={self.finished}, "
                 f"metrics={self.metrics}, "
-                f"lora_request={self.lora_request})")
+                f"lora_request={self.lora_request},"
+                f"error={self.error})")
 
 
 class EmbeddingRequestOutput:
@@ -209,10 +220,10 @@ class EmbeddingRequestOutput:
 class RequestOutputFactory:
 
     @staticmethod
-    def create(seq_group):
+    def create(seq_group, error: Optional[BaseException] = None):
         # Determine the type based on a condition, for example:
         if hasattr(seq_group,
                    'embeddings') and seq_group.embeddings is not None:
             return EmbeddingRequestOutput.from_seq_group(seq_group)
         else:
-            return RequestOutput.from_seq_group(seq_group)
+            return RequestOutput.from_seq_group(seq_group, error=error)

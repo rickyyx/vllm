@@ -26,7 +26,7 @@ class FaultyJsonModeLogitsProcessor(JSONModeLogitsProcessor):
         self._p_error = p_error
         super().__init__(*args, **kwargs)
 
-    def call(self, input_list: List[Tuple[List[int], str, List[int]]]):
+    def call(self, input_list: List[Tuple[List[int], str]]):
         rand_n = random.random()
         if rand_n < self._p_timeout:
             print(f"Faulty token ids {rand_n=} (taking too long ...)")
@@ -43,3 +43,27 @@ class FaultyProcessorWithException(FaultyJsonModeLogitsProcessor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, p_timeout=0.0, p_error=0.01, **kwargs)
+
+
+class FaultyProcessorWithErrorsAllTheTime(FaultyJsonModeLogitsProcessor):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, p_timeout=0.0, p_error=1.0, **kwargs)
+
+
+class ProcessorFailFirstRank(JSONModeLogitsProcessor):
+    """Logit Processor that only fails when it is the first rank.
+    """
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+
+    def call(self, input_list: List[Tuple[List[int], str]]):
+        if self._rank == 0:
+            raise ValueError("Faulty token ids")
+
+        return super().call(input_list)

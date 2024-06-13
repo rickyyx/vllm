@@ -237,12 +237,13 @@ class JSONModeManager:
             )
             self._json_mode_logits_processors = [
                 remote_cls.remote(
+                    i,
                     tokenizer_name_or_path,
                     vocab_size,
                     recreate_failed_actors=recreate_failed_actors,
                     delay_between_actor_restarts_s=(
                         delay_between_actor_restarts_s))
-                for _ in range(json_processor_num_workers)
+                for i in range(json_processor_num_workers)
             ]
 
             # Wait until the actors are ready
@@ -449,7 +450,6 @@ class JSONModeManager:
                     shm.set_data(processor_input, wake_up=False)
                     set_event = False
             self._has_sent_payload = True
-
         return buffer_inds_to_batch_inds
 
     def get_json_logits_bias(
@@ -541,9 +541,11 @@ class JSONModeManager:
         # output_token_ids. The call is parallelized remotely via ray since
         # they are long (> 1 ms).
 
-        # For every group...
         for seq_group_metadata in seq_group_metadata_list:
             sampling_params = seq_group_metadata.sampling_params
+            # TODO(sang): Prompt logprob is not supported.
+            assert sampling_params.prompt_logprobs is None, (
+                "Prompt logprob is not supported with json mode.")
             seq_ids = list(seq_group_metadata.seq_data.keys())
             # It is already validated int SamplingParam's postint that
             # response_format is a dict with a schema key

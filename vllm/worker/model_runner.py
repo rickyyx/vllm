@@ -759,7 +759,14 @@ class ModelRunner:
         )
 
         # Compute the logits.
-        logits = self.model.compute_logits(hidden_states, sampling_metadata)
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            logits, failed_indices = self.model.compute_logits(
+                hidden_states, sampling_metadata)
+        else:
+            logits = self.model.compute_logits(hidden_states,
+                                               sampling_metadata)
+        # Anyscale end
 
         # Only perform sampling in the driver worker.
         if not self.is_driver_worker:
@@ -771,7 +778,24 @@ class ModelRunner:
             sampling_metadata=sampling_metadata,
         )
 
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            output = self._mark_output_failed_if_needed(output, failed_indices)
+        # Anyscale end
+
         return output
+
+    # Anyscale start
+    def _mark_output_failed_if_needed(
+            self, sampler_output: Optional[SamplerOutput],
+            failed_indices: Optional[List[int]]) -> Optional[SamplerOutput]:
+        if sampler_output is None or failed_indices is None:
+            return sampler_output
+
+        sampler_output.mark_sequence_group_failed(failed_indices)
+        return sampler_output
+
+    # Anyscale end
 
     @torch.inference_mode()
     def profile_run(self) -> None:

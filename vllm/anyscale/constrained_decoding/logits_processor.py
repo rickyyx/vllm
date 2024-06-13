@@ -72,6 +72,7 @@ class JSONModeLogitsProcessor(FaultAwareDaemon):
     """
 
     def __init__(self,
+                 rank: int,
                  tokenizer_name_or_path: str,
                  padded_vocab_size: int,
                  recreate_failed_actors: bool = False,
@@ -79,6 +80,8 @@ class JSONModeLogitsProcessor(FaultAwareDaemon):
         super().__init__(recreate_failed_actors,
                          delay_between_actor_restarts_s)
 
+        # Rank of the json mode logit processor. Testing-only.
+        self._rank = rank
         self.tokenizer = get_tokenizer(tokenizer_name_or_path)
         self.padded_vocab_size = padded_vocab_size
         self.token_enforcer_cache = LRUCache(SCHEMA_CACHE_SIZE)
@@ -110,8 +113,7 @@ class JSONModeLogitsProcessor(FaultAwareDaemon):
         mask = self.tensor_cache[allowed_tokens]
         row.copy_(mask)
 
-    def call(self, input_list: List[Tuple[List[int], str,
-                                          List[int]]]) -> np.ndarray:
+    def call(self, input_list: List[Tuple[List[int], str]]) -> np.ndarray:
         allowed_token_tensor = torch.zeros(
             (len(input_list), self.padded_vocab_size), dtype=torch.bool)
         for i, data in enumerate(input_list):
