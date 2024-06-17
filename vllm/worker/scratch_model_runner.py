@@ -28,6 +28,8 @@ from vllm.sequence import (
     CompletionSequenceGroupOutput,
 )
 from vllm.model_executor.model_loader import get_model
+from vllm.model_executor.model_loader.utils import set_default_torch_dtype
+from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.utils import CudaMemoryProfiler
 from vllm.sequence import Logprob
 from vllm.model_executor import SamplingMetadata
@@ -89,12 +91,16 @@ class ScratchModelRunner:
         self.model: nn.Module
         # session_id_str -> session_id
         self.session_ids = {}
+        # It is a hack. SANG-TODO Move it to Scratch Model module.
+        with set_default_torch_dtype(model_config.dtype):
+            with torch.device(device_config.device):
+                self.norm = RMSNorm(
+                    self.model_config.hf_config.hidden_size,
+                    eps=self.model_config.hf_config.rms_norm_eps)
 
         self._verify_scratch_config()
 
     def _verify_scratch_config(self):
-        assert self.scheduler_config.max_num_seqs == 1, (
-            "bsize > 1 is not supported.")
         assert self.is_driver_worker, ("TP > 1 not supported.")
         assert self.model_config.dtype == torch.half, ("Only half type is allowed.")
         assert self.scheduler_config.chunked_prefill_enabled is False, (
@@ -191,100 +197,128 @@ class ScratchModelRunner:
     ) -> Optional[SamplerOutput]:
         # KV cache is unused.
         input_tokens: List[int] = []
-        assert len(seq_group_metadata_list) == 1, "Only bsize 1 is allowed."
-
-        is_prefill = False
-        session_id: Optional[int] = None
-        parent_id = None
-
+        parent_ids = []
+        session_ids = []
+        prefill_group = []
+        decode_group = []
         query_lens = []
         seq_lens = []
         for seq_group_metadata in seq_group_metadata_list:
+            session_id = int(seq_group_metadata.request_id)
+            session_ids.append(session_id)
+
+            if session_id not in self.session_ids:
+                self.session_ids[session_id] = self.scratch.new_session()
+
+            # TODO(sang): Delete sessions.
+            # TODO(sang): Paged attn.
+            session = self.session_ids[session_id]
+
             is_prefill = seq_group_metadata.is_prompt
+            if is_prefill:
+                prefill_group.append(seq_group_metadata)
+            else:
+                decode_group.append(seq_group_metadata)
+
             seq_data = seq_group_metadata.seq_data
-            # Scratch only supports a single sequence.
-            assert len(seq_data) == 1
             for seq_id, data in seq_data.items():
                 parent_id = seq_id
+                parent_ids.append(parent_id)
                 if is_prefill:
-                    input_tokens.extend(data.prompt_token_ids)
+                    # TODO(sang): Hack. Remove it.
+                    input_tokens.append(data.prompt_token_ids)
+                    query_lens.append(seq_data[parent_id].get_prompt_len())
+                    seq_lens.append(seq_data[parent_id].get_prompt_len())
                 else:
-                    # pass
-                    input_tokens.append(data.get_token_ids()[-1])
-                    # input_tokens.append(data.get_token_ids())
+                    input_tokens.append(data.get_last_token_id())
+                    query_lens.append(1)
+                    seq_lens.append(seq_data[parent_id].get_len())
 
-            assert parent_id is not None
-            session_id = int(seq_group_metadata.request_id)
-            if is_prefill:
-                query_lens.append(seq_data[parent_id].get_prompt_len())
-                seq_lens.append(seq_data[parent_id].get_prompt_len())
-            else:
-                query_lens.append(1)
-                seq_lens.append(seq_data[parent_id].get_len())
-
-        assert session_id is not None
-        assert parent_id is not None
         sampling_metadata = SamplingMetadata.prepare(
             seq_group_metadata_list, seq_lens, query_lens, self.device,
             self.pin_memory)
+        return self._execute_and_vllm_sample(
+            prefill_group,
+            decode_group,
+            input_tokens,
+            session_ids,
+            parent_ids,
+            sampling_metadata)
+        # return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_ids)
 
-        if session_id not in self.session_ids:
-            # SANG-TODO Remove the logic after supporting multi sessions.
-            if len(self.session_ids) != 0:
-                self.session_ids = {}
-            self.session_ids[session_id] = self.scratch.new_session()
-            print(self.session_ids)
+    def _execute_and_vllm_sample(
+            self,
+            prefill_groups: List[SequenceGroupMetadata],
+            decode_groups: List[SequenceGroupMetadata],
+            # It is 2D query if it is prefill, else decode.
+            input_tokens: List[int],
+            session_ids: List[int],
+            parent_ids: List[int],
+            sampling_metadata: SamplingMetadata):
+        if len(prefill_groups) > 0:
+            assert len(decode_groups) == 0
+        if len(decode_groups) > 0:
+            assert len(prefill_groups) == 0
 
-        # print(f"SANG-TODO {input_tokens=}")
-        return self._execute_and_vllm_sample(is_prefill, input_tokens, session_id, parent_id, sampling_metadata)
-        # return self._execute_and_scratch_sample(is_prefill, input_tokens, session_id, parent_id)
-
-    def _execute_and_vllm_sample(self, is_prefill: bool, input_tokens: List[int], session_id: int, parent_id: int, sampling_metadata: SamplingMetadata):
-        input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
-        batch_size = 1
+        batch_size = len(session_ids)
         hidden_states = torch.zeros(
             self.model_config.get_hidden_size() * batch_size, device="cuda", dtype=torch.half)
-        session_id = self.session_ids[session_id]
-
+        
         s = time.time()
-        if is_prefill:
+        # Run prefills.
+        i = 0
+        for session_id, prefill_group in zip(session_ids, prefill_groups):
+            input_tokens_tensor = torch.tensor(input_tokens[i], device="cuda", dtype=torch.int)
+            session = self.session_ids[session_id]
             self.scratch.prefill(
-                session_id,
+                session,
+                # TODO(sang): Hack. Remove it.
                 input_tokens_tensor.data_ptr(),
                 input_tokens_tensor.shape[0],
-                hidden_states.data_ptr()
+                hidden_states[self.model_config.get_hidden_size()*i:self.model_config.get_hidden_size()*(i+1)].data_ptr(),
+                # Needs to be True.
+                False,
             )
-        else:
-            session_ids_tensor = torch.tensor([session_id], device="cuda", dtype=torch.int)
+            i += 1
+        
+        # Run decodes.
+        if len(decode_groups) > 0:
+            input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
+            session_ids_tensor = torch.tensor(session_ids, device="cuda", dtype=torch.int)
             self.scratch.decode(
                 session_ids_tensor.data_ptr(),
                 input_tokens_tensor.data_ptr(),
                 batch_size,
                 hidden_states.data_ptr(),
             )
-        print(f"SANG-TODO forward takes {(time.time() - s)* 1000} ms")
 
-        # SANG-TODO remove it. Hack.
-        sampling_metadata.selected_token_indices = torch.tensor([0], device="cuda", dtype=torch.int)
+        print(f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}")
+        print(f"SANG-TODO {hidden_states.shape=}")
+        # Post process Scratch embeddings.
+        hidden_states = hidden_states.view(-1, self.model_config.get_hidden_size())
+        assert hidden_states.is_contiguous()
+        print(hidden_states)
+        print(f"{hidden_states.shape=}")
+        # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
+        # Residual is set to None because it is already added from Scratch output.
+        hidden_states = self.norm(hidden_states, None)
+        print(f"{hidden_states.shape=}")
 
-        logits = self.model.compute_logits(hidden_states.view(-1, self.model_config.get_hidden_size()), sampling_metadata)
-        # if is_prefill:
-        #     print("SANG-TODO hidden_states after prefill:")
-        #     print(hidden_states)
-        #     print("SANG-TODO logits after prefill:")
-        #     print(logits)
-
+        # SANG-TODO remove it. Hack. It will work once scrath returns embedding of all tokens correctly.
+        sampling_metadata.selected_token_indices = torch.tensor([i for i in range(batch_size)], device="cuda", dtype=torch.int)
+        print(f"{sampling_metadata.selected_token_indices=}")
+        logits = self.model.compute_logits(hidden_states, sampling_metadata)
         output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        if is_prefill:
-            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms")
+        if len(prefill_groups) > 0:
+            print(f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}")
         else:
-            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms")
+            print(f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}")
         return output
 
-    def _execute_and_scratch_sample(self, is_prefill: bool, input_tokens: List[int], session_id: object, parent_id: int):
+    def _execute_and_scratch_sample(self, is_prefill: bool, input_tokens: List[int], session_id: object, parent_ids: int):
         input_tokens_tensor = torch.tensor(input_tokens, device="cuda", dtype=torch.int)
         tokens_out = torch.zeros(1, device="cuda", dtype=torch.int)
         batch_size = 1
