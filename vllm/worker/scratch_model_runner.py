@@ -199,8 +199,8 @@ class ScratchModelRunner:
         input_tokens: List[int] = []
         parent_ids = []
         session_ids = []
-        prefill_group = []
-        decode_group = []
+        prefill_groups = []
+        decode_groups = []
         query_lens = []
         seq_lens = []
         for seq_group_metadata in seq_group_metadata_list:
@@ -216,9 +216,9 @@ class ScratchModelRunner:
 
             is_prefill = seq_group_metadata.is_prompt
             if is_prefill:
-                prefill_group.append(seq_group_metadata)
+                prefill_groups.append(seq_group_metadata)
             else:
-                decode_group.append(seq_group_metadata)
+                decode_groups.append(seq_group_metadata)
 
             seq_data = seq_group_metadata.seq_data
             for seq_id, data in seq_data.items():
@@ -238,8 +238,8 @@ class ScratchModelRunner:
             seq_group_metadata_list, seq_lens, query_lens, self.device,
             self.pin_memory)
         return self._execute_and_vllm_sample(
-            prefill_group,
-            decode_group,
+            prefill_groups,
+            decode_groups,
             input_tokens,
             session_ids,
             parent_ids,
@@ -265,14 +265,14 @@ class ScratchModelRunner:
             self.model_config.get_hidden_size() * batch_size, device="cuda", dtype=torch.half)
         
         s = time.time()
-        # Run prefills.
+        # Run prefills. Scratch currently doesn't support batch prefills, so we should
+        # iterate one by one.
         i = 0
         for session_id, prefill_group in zip(session_ids, prefill_groups):
             input_tokens_tensor = torch.tensor(input_tokens[i], device="cuda", dtype=torch.int)
             session = self.session_ids[session_id]
             self.scratch.prefill(
                 session,
-                # TODO(sang): Hack. Remove it.
                 input_tokens_tensor.data_ptr(),
                 input_tokens_tensor.shape[0],
                 hidden_states[self.model_config.get_hidden_size()*i:self.model_config.get_hidden_size()*(i+1)].data_ptr(),
