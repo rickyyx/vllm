@@ -134,6 +134,7 @@ class SamplingParams:
         spaces_between_special_tokens: bool = True,
         logits_processors: Optional[List[LogitsProcessor]] = None,
         truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.n = n
         self.best_of = best_of if best_of is not None else n
@@ -175,6 +176,11 @@ class SamplingParams:
         self.logits_processors = logits_processors
         self.include_stop_str_in_output = include_stop_str_in_output
         self.truncate_prompt_tokens = truncate_prompt_tokens
+
+        # ANYSCALE start
+        self.response_format = response_format
+        # ANYSCALE end
+
         # Number of characters to hold back for stop string evaluation
         # until sequence is finished.
         if self.stop and not include_stop_str_in_output:
@@ -249,6 +255,9 @@ class SamplingParams:
                 "stop strings are only supported when detokenize is True. "
                 "Set detokenize=True to use stop.")
 
+        if self.response_format:
+            self._verify_response_format()
+
     def _verify_beam_search(self) -> None:
         if self.best_of == 1:
             raise ValueError("best_of must be greater than 1 when using beam "
@@ -315,6 +324,33 @@ class SamplingParams:
             for lp in self.logits_processors
         }
         return copy.deepcopy(self, memo=logit_processor_refs)
+
+    def _verify_response_format(self) -> None:
+        if not isinstance(self.response_format, dict):
+            raise ValueError("response_format must be a dictionary, got "
+                             f"{self.response_format}.")
+
+        # Anyscale start
+        if self.prompt_logprobs is not None:
+            raise ValueError("Prompt logprobs is not supported with JSON "
+                             "mode/function calling.")
+        # Anyscale end
+
+        if self.top_k != -1:
+            raise ValueError(
+                "top_k must be -1 when using JSON mode/function calling,"
+                f" got {self.top_k}")
+        if self.top_p < 1.0 - _SAMPLING_EPS:
+            raise ValueError(
+                "top_p must be 1.0 when using JSON mode/function calling,"
+                f" got {self.top_p}")
+        # In JSON mode, schema is required
+        if self.response_format.get("type") == ["json", "json_object"]:
+            json_schema = self.response_format.get("schema")
+            if not json_schema:
+                raise ValueError(
+                    "JSON provided as response type but 'schema' is not "
+                    "provided.")
 
     def __repr__(self) -> str:
         return (

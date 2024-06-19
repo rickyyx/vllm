@@ -69,6 +69,13 @@ class MultiStepOutputProcessor(SequenceGroupOutputProcessor):
         including freeing finished sequences. It also handles cases where there
         are tokens emitted after the EOS token.
         """
+        # Anyscale start
+        for output in outputs:
+            if output.is_failed():
+                sequence_group.set_status_to_failed()
+                return
+        # Anyscale end
+
         seqs = sequence_group.get_seqs(status=SequenceStatus.RUNNING)
 
         assert seqs, "expected running sequences"
@@ -78,7 +85,7 @@ class MultiStepOutputProcessor(SequenceGroupOutputProcessor):
 
         # Since there's only one sequence per sequence group, we can take the
         # first sample.
-        samples = [outputs[step].samples[0] for step in range(len(outputs))]
+        samples = [output.samples[0] for output in outputs]
 
         # -1 means the output token is not valid (eg. due to spec decode
         # rejecting tokens).

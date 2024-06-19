@@ -1,12 +1,16 @@
 """A layer that compute logits from hidden_stats."""
 import inspect
-from typing import Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
 
+from vllm.anyscale import anyscale_envs
+from vllm.anyscale.constrained_decoding.json_mode_manager import (
+    JSONModeManager)
 from vllm.distributed import tensor_model_parallel_gather
 from vllm.model_executor.sampling_metadata import SamplingMetadata
+from vllm.sequence import SequenceGroupMetadata
 
 
 class LogitsProcessor(nn.Module):
@@ -21,7 +25,7 @@ class LogitsProcessor(nn.Module):
     def __init__(self,
                  vocab_size: int,
                  org_vocab_size: Optional[int] = None,
-                 scale: Optional[float] = 1.0,
+                 scale: float = 1.0,
                  logits_as_input: bool = False) -> None:
         """
         Args:
@@ -52,7 +56,8 @@ class LogitsProcessor(nn.Module):
             logits = self._get_logits(hidden_states, embedding, embedding_bias)
 
         if logits is not None:
-            logits *= self.scale
+            if self.scale != 1.0:
+                logits *= self.scale
 
             # Apply logits processors (if any).
             logits = _apply_logits_processors(logits, sampling_metadata)
@@ -123,4 +128,139 @@ def _apply_logits_processors(
     if found_logits_processors:
         # verifies that no rows in logits were missed unexpectedly
         assert logits_processed == logits.shape[0]
+
     return logits
+
+
+# Anyscale start
+class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
+    """Logit processor that is used for json mode.
+
+    Compared to a normal guided decoding, json logit masks are
+    prepared "asynchronously" in a batch. Note that a normal logit processor
+    prepares mask "synchronously" row by row blocking.
+
+    TODO(sang): This class should be removed once we support batch logit
+    processor in OSS vLLM.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Mapping from buffer indicies to the batch indices that the
+        # corresponding buffer is responsible for. Since vLLM only allows 1
+        # batch at a time to be processed, it is set to None when logit masks
+        # are not prepared by `prepare`.
+        self._buffer_inds_to_batch_inds = None
+        # Lazily initialized.
+        self._json_mode_manager: Optional[JSONModeManager] = None
+
+    def initialize(self, tokenizer: str) -> None:
+        """Initialize the stateful logit processors.
+
+        Args:
+            tokenizer_name_or_path: The name or path of the tokenizer to use.
+        """
+        if self._json_mode_manager is not None:
+            return
+
+        self._json_mode_manager = JSONModeManager(
+            tokenizer,
+            self.vocab_size,
+            recreate_failed_actors=anyscale_envs.RECREATE_FAILED_ACTORS,
+            max_restarts=anyscale_envs.MAX_RESTARTS,
+            delay_between_actor_restarts_s=anyscale_envs.
+            DELAY_BETWEEN_ACTOR_RESTARTS_S,
+            logit_processor_cls=anyscale_envs.LOGIT_PROCESSOR_CLS,
+            use_v2=anyscale_envs.USE_V2,
+            json_processor_num_workers=anyscale_envs.NUM_PROCESSOR_WORKERS,
+        )
+
+    def prepare(self,
+                seq_gruop_metadata_list: List[SequenceGroupMetadata]) -> None:
+        """Prepare logit masks by start JSON processors by sending them
+            new data. Non-blocking.
+
+        This method submits the batch items that need to be logit processed in
+        a non-blocking fashion. It also sets the batch indices mapping so
+        that we can recover the processed logits and assign them back to the
+        item indices.
+
+        Args:
+            seq_gruop_metadata_list: A list of sequence group metadata to
+                prepare logit masks for json mode. 
+        """
+        assert self._json_mode_manager is not None
+        self._buffer_inds_to_batch_inds = (
+            self._json_mode_manager.start_json_logits_processors(
+                seq_gruop_metadata_list))
+
+    def _apply_json_logits_processor(
+        self,
+        logits: torch.Tensor,
+    ) -> Optional[torch.Tensor]:
+        """Apply the JSON processor mask to logits in-place.
+
+        `prepare` has to be called before this API used. After this API
+        is called the state prepared from `prepared` it reset.
+
+        Args:
+            logits: The logits tensor to apply the mask to.
+                This tensor will be modified in-place.
+
+        Returns:
+            A mask tensor indicating which tokens are valid
+        """
+        assert self._json_mode_manager is not None, (
+            ".initialize should have been called already, "
+            "Did you forget it?")
+        # `prepare` has to be called before forward is called.
+        assert self._buffer_inds_to_batch_inds is not None, (
+            ".prepare(..) should have been called, Did you forget it?")
+
+        json_bias, json_mask_success = (
+            self._json_mode_manager.get_json_logits_bias(
+                logits, self._buffer_inds_to_batch_inds))
+
+        logits.add_(json_bias)
+        # Reset the state.
+        self._buffer_inds_to_batch_inds = None
+
+        return json_mask_success
+
+    def forward(
+        self,
+        embedding: torch.Tensor,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+        embedding_bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Compute logits and apply the json logit processor.
+
+        `prepare` has to be called before `forward` is called. And `prepare`
+        and `forward` should be called 1:1. Otherwise, it will have assertion
+        failure.
+        """
+        logits = super().forward(
+            embedding,
+            hidden_states,
+            sampling_metadata,
+            embedding_bias,
+        )
+
+        json_mask_success = self._apply_json_logits_processor(logits)
+
+        # Find failed sequence groups.
+        failed_seq_group_indices = None
+        if json_mask_success is not None:
+            failed_seq_group_indices = []
+            for i, seq_group in enumerate(sampling_metadata.seq_groups):
+                sample_indices = seq_group.sample_indices
+                if not json_mask_success[sample_indices].all():
+                    failed_seq_group_indices.append(i)
+
+        return logits, failed_seq_group_indices
+
+
+if anyscale_envs.ENABLE_JSON_MODE:
+    LogitsProcessor = JsonModeAsyncBatchLogitProcessor  # type: ignore
+# Anyscale end

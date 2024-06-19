@@ -48,6 +48,9 @@ class SequenceStatus(enum.Enum):
     FINISHED_LENGTH_CAPPED = enum.auto()
     FINISHED_ABORTED = enum.auto()
     FINISHED_IGNORED = enum.auto()
+    # Anyscale start
+    FINISHED_INTERNAL_ERROR = enum.auto()
+    # Anyscale end
 
     @staticmethod
     def is_finished(status: "SequenceStatus") -> bool:
@@ -56,6 +59,7 @@ class SequenceStatus(enum.Enum):
             SequenceStatus.FINISHED_LENGTH_CAPPED,
             SequenceStatus.FINISHED_ABORTED,
             SequenceStatus.FINISHED_IGNORED,
+            SequenceStatus.FINISHED_INTERNAL_ERROR,
         ]
 
     @staticmethod
@@ -66,6 +70,10 @@ class SequenceStatus(enum.Enum):
             finish_reason = "length"
         elif status == SequenceStatus.FINISHED_ABORTED:
             finish_reason = "abort"
+        # Anyscale start
+        elif status == SequenceStatus.FINISHED_INTERNAL_ERROR:
+            finish_reason = "internal_error"
+        # Anyscale end
         elif status == SequenceStatus.FINISHED_IGNORED:
             # The ignored sequences are the sequences whose prompt lengths
             # are longer than the model's length cap. Therefore, the stop
@@ -385,6 +393,12 @@ class Sequence:
     def is_prefill(self) -> bool:
         return self.data.stage == SequenceStage.PREFILL
 
+    # Anyscale start
+    def set_status_to_failed(self) -> None:
+        self.status = SequenceStatus.FINISHED_INTERNAL_ERROR
+
+    # Anyscale end
+
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "
                 f"status={self.status.name}, "
@@ -587,6 +601,18 @@ class SequenceGroup:
         # Every sequence should be in the same stage.
         return self.get_seqs()[0].is_prefill()
 
+    # Anyscale start
+    def set_status_to_failed(self) -> None:
+        for seq in self.get_seqs():
+            if not seq.is_finished():
+                seq.set_status_to_failed()
+
+    def has_failed_seqs(self) -> bool:
+        return any(seq.status == SequenceStatus.FINISHED_INTERNAL_ERROR
+                   for seq in self.get_seqs())
+
+    # Anyscale end
+
     def __repr__(self) -> str:
         return (f"SequenceGroup(request_id={self.request_id}, "
                 f"sampling_params={self.sampling_params}, "
@@ -737,6 +763,18 @@ class CompletionSequenceGroupOutput(SequenceGroupOutput):
         self.samples = samples
         # Prompt logprob for each prompt query token.
         self.prompt_logprobs = prompt_logprobs
+        # Anyscale start
+        self._success = True
+        # Anyscale end
+
+    # Anyscale start
+    def mark_sequence_group_failed(self):
+        self._success = False
+
+    def is_failed(self):
+        return not self._success
+
+    # Anyscale end
 
     def __repr__(self) -> str:
         return (f"CompletionSequenceGroupOutput(samples={self.samples}, "
@@ -790,6 +828,13 @@ class SamplerOutput:
 
     # Spec decode metrics populated by workers.
     spec_decode_worker_metrics: Optional["SpecDecodeWorkerMetrics"] = None
+
+    # Anyscale start
+    def mark_sequence_group_failed(self, failed_indices: List[int]):
+        for i in failed_indices:
+            self.outputs[i].mark_sequence_group_failed()
+
+    # Anyscale end
 
     def __getitem__(self, idx: int):
         return self.outputs[idx]

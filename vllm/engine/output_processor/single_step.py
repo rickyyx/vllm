@@ -72,6 +72,12 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
 
     def _process_sequence_group_outputs(self, seq_group: SequenceGroup,
                                         outputs: SequenceGroupOutput) -> None:
+        # Anyscale start
+        if outputs.is_failed():
+            seq_group.set_status_to_failed()
+            return
+        # Anyscale end
+
         # Process samples
         samples = outputs.samples
         parent_seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)

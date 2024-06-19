@@ -37,7 +37,7 @@ def main(args: argparse.Namespace):
               download_dir=args.download_dir,
               block_size=args.block_size,
               gpu_memory_utilization=args.gpu_memory_utilization,
-              max_num_seqs=1)
+              distributed_executor_backend=args.distributed_executor_backend)
 
     sampling_params = SamplingParams(
         n=args.n,
@@ -222,5 +222,12 @@ if __name__ == '__main__':
                         help='the fraction of GPU memory to be used for '
                         'the model executor, which can range from 0 to 1.'
                         'If unspecified, will use the default value of 0.9.')
+    parser.add_argument(
+        '--distributed-executor-backend',
+        choices=['ray', 'mp'],
+        default=None,
+        help='Backend to use for distributed serving. When more than 1 GPU '
+        'is used, will be automatically set to "ray" if installed '
+        'or "mp" (multiprocessing) otherwise.')
     args = parser.parse_args()
     main(args)

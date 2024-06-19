@@ -62,7 +62,7 @@ def get_lock(model_name_or_path: str, cache_dir: Optional[str] = None):
     lock_file_name = hash_name + model_name + ".lock"
     # mode 0o666 is required for the filelock to be shared across users
     lock = filelock.FileLock(os.path.join(lock_dir, lock_file_name),
-                             mode=0o666)
+                             mode=0o666)  # type: ignore
     return lock
 
 
@@ -122,12 +122,9 @@ def get_quant_config(model_config: ModelConfig,
     hf_quant_config = getattr(model_config.hf_config, "quantization_config",
                               None)
     if hf_quant_config is None:
-        compression_config = getattr(model_config.hf_config,
-                                     "compression_config", None)
-        if compression_config is not None:
-            hf_quant_config = compression_config.get("quantization_config",
-                                                     None)
-
+        # compressed-tensors uses a compressions_config
+        hf_quant_config = getattr(model_config.hf_config, "compression_config",
+                                  None)
     if hf_quant_config is not None:
         return quant_cls.from_config(hf_quant_config)
     # In case of bitsandbytes/QLoRA, get quant config from the adapter model.
