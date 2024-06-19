@@ -35,6 +35,7 @@ def test_models(
         model,
         dtype=dtype,
         enforce_eager=True,
+        block_size=32,
         # max_num_seqs=1,
     )
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)

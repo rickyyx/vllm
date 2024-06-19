@@ -7,7 +7,6 @@ from vllm.logger import init_logger
 from vllm.utils import is_hip
 from vllm.scratch_env import USE_SCRATCH
 
-
 logger = init_logger(__name__)
 
 # Architecture -> (module, class).
@@ -67,7 +66,9 @@ _EMBEDDING_MODELS = {
 
 _MODELS = {**_GENERATION_MODELS, **_EMBEDDING_MODELS}
 
-_SCRATCH_MODELS = {"LlamaForCausalLM": ("llama", "LlamaForCausalLM"),}
+_SCRATCH_MODELS = {
+    "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
+}
 
 # Architecture -> type.
 # out of tree models

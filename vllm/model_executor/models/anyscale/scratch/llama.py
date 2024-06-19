@@ -29,6 +29,7 @@ from vllm.utils import is_hip, print_warning_once
 
 
 class LlamaForCausalLM(nn.Module):
+
     def __init__(
         self,
         config: LlamaConfig,
@@ -39,22 +40,21 @@ class LlamaForCausalLM(nn.Module):
         super().__init__()
         self.config = config
         # TODO(sang): Probably not going to work with tp > 1
-        self.lm_head = ParallelLMHead(
-            config.vocab_size,
-            config.hidden_size,
-            org_num_embeddings=config.vocab_size,
-            padding_size=DEFAULT_VOCAB_PADDING_SIZE
-        )
+        self.lm_head = ParallelLMHead(config.vocab_size,
+                                      config.hidden_size,
+                                      org_num_embeddings=config.vocab_size,
+                                      padding_size=DEFAULT_VOCAB_PADDING_SIZE)
         if config.tie_word_embeddings:
             embed_tokens = VocabParallelEmbedding(
-            config.vocab_size,
-            config.hidden_size,
-            org_num_embeddings=config.vocab_size,
+                config.vocab_size,
+                config.hidden_size,
+                org_num_embeddings=config.vocab_size,
             )
             self.lm_head.weight = embed_tokens.weight
 
         logit_scale = getattr(config, "logit_scale", 1.0)
-        self.logits_processor = LogitsProcessor(config.vocab_size, config.vocab_size, logit_scale)
+        self.logits_processor = LogitsProcessor(config.vocab_size,
+                                                config.vocab_size, logit_scale)
         self.sampler = Sampler()
 
     def forward(
