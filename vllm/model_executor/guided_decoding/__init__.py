@@ -22,10 +22,12 @@ async def get_guided_decoding_logits_processor(
     if guided_decoding_backend == 'lm-format-enforcer':
         return await get_lm_format_enforcer_guided_decoding_logits_processor(
             request, tokenizer)
+    elif guided_decoding_backend == "none":
+        return None
 
     raise ValueError(
         f"Unknown guided decoding backend '{guided_decoding_backend}'. "
-        "Must be one of 'outlines, 'lm-format-enforcer'")
+        "Must be one of 'outlines, 'lm-format-enforcer', 'none'")
 
 
 def _adapt_request_for_tool_use(request: Union[CompletionRequest,

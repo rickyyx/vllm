@@ -453,7 +453,7 @@ class JSONModeManager:
         self,
         logits: torch.Tensor,
         buffer_inds_to_batch_inds: Dict[int, List[int]],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, List[bool]]:
         """Get the logit bias tensors from the json logit processors.
 
         This tensor will be used to mask the logits tensor. It will be 0 for
@@ -465,8 +465,10 @@ class JSONModeManager:
                 indices.
 
         Returns:
-            The logit bias tensor. If the json processors are not enabled, this
-                will be None.
+            A tuple where the first element is the mask tensor. 
+            The second element is a list of bools which indicates which
+            rows are valid masks. If no guided requests are in the batch 
+            the mask will be all ones.
         """
         # If we have any sequences with json enabled...
         if buffer_inds_to_batch_inds:
@@ -481,11 +483,11 @@ class JSONModeManager:
                 device=logits.device, non_blocking=True)
             logits_bias.masked_fill_(all_allowed_tokens_mask, 0)
         else:
-            # On non rank-0 and non-empty payload or if json payload is empty,
+            # On non rank-0 and non-empty payload or if guided payload is empty,
             # we just create no-op tensors, which we'll also broadcast into
             # from rank 0.
             logits_bias = torch.zeros_like(logits)
-            mask_success = torch.ones_like(logits[:, 0], dtype=torch.bool)
+            mask_success = [True] * len(logits)
 
         return logits_bias, mask_success
 
@@ -578,7 +580,7 @@ class JSONModeManager:
         self,
         logits: torch.Tensor,
         buffer_inds_to_batch_inds: Dict[int, List[int]],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, List[bool]]:
         """Constructs a boolean mask from the output of processors.
 
         It reads the shared memory buffers and re-indexes the output to match
@@ -599,9 +601,9 @@ class JSONModeManager:
                 indices.
 
         Returns:
-            A tuple of two tensors. The first tensor is the mask tensor. The
-                second tensor is the valid mask tensor which indicates which
-                rows are valid masks.
+            A tuple where the first element is the mask tensor. 
+            The second element is a list of bools which indicates which
+            rows are valid masks.
         """
         # Should not be called on rank != 0
         assert self._json_mode_logits_processors
@@ -611,7 +613,8 @@ class JSONModeManager:
         all_allowed_tokens_mask = torch.ones(logits.shape,
                                              dtype=torch.bool,
                                              pin_memory=True)
-        valid_mask = torch.ones_like(logits[:, 0], dtype=torch.bool)
+
+        valid_mask = [True] * len(logits)
 
         for buf_idx, batch_inds in buffer_inds_to_batch_inds.items():
             # Get returned data from a single processor
@@ -638,7 +641,9 @@ class JSONModeManager:
                 i_buffer.set_error()
                 o_buffer.set_error()
                 logger.info("Continuing to the next buffer ...")
-                valid_mask[batch_inds] = False
+
+                for batch_idx in batch_inds:
+                    valid_mask[batch_idx] = False
                 continue
 
             try:
@@ -651,14 +656,17 @@ class JSONModeManager:
                 # clearing the buffer
                 logger.info(
                     "Hit the shm read error in mask_from_processor_output ...")
-                valid_mask[batch_inds] = False
+                for batch_idx in batch_inds:
+                    valid_mask[batch_idx] = False
                 continue
 
-            allowed_token_mask = torch.from_numpy(allowed_token_mask)
+            allowed_token_mask_tensor = torch.from_numpy(allowed_token_mask)
 
             # Reindex
-            all_allowed_tokens_mask[batch_inds] = allowed_token_mask
+            all_allowed_tokens_mask[batch_inds] = allowed_token_mask_tensor
+
             o_buffer.clear()
 
         self._has_sent_payload = False
+
         return all_allowed_tokens_mask, valid_mask

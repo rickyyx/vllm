@@ -765,9 +765,10 @@ class ModelRunner:
         if (anyscale_envs.ENABLE_JSON_MODE
                 and seq_group_metadata_list is not None):
             # seq_group_metadata_list is None for non-driver.
-            logits, failed_indices = self.model.compute_logits(
+            logits, json_mask_success = self.model.compute_logits(
                 hidden_states, sampling_metadata)
         else:
+            json_mask_success = None
             logits = self.model.compute_logits(hidden_states,
                                                sampling_metadata)
         # Anyscale end
@@ -784,7 +785,8 @@ class ModelRunner:
 
         # Anyscale start
         if anyscale_envs.ENABLE_JSON_MODE:
-            output = self._mark_output_failed_if_needed(output, failed_indices)
+            output = self._mark_output_failed_if_needed(
+                output, json_mask_success, sampling_metadata)
         # Anyscale end
 
         return output
@@ -792,7 +794,19 @@ class ModelRunner:
     # Anyscale start
     def _mark_output_failed_if_needed(
             self, sampler_output: Optional[SamplerOutput],
-            failed_indices: Optional[List[int]]) -> Optional[SamplerOutput]:
+            json_mask_success: Optional[List[bool]],
+            sampling_metadata: SamplingMetadata) -> Optional[SamplerOutput]:
+
+        # Find failed sequence groups.
+        failed_indices = None
+        if json_mask_success is not None:
+            failed_indices = []
+            for seq_idx, seq_group in enumerate(sampling_metadata.seq_groups):
+                sample_indices = seq_group.sample_indices
+                if not all(json_mask_success[sample_idx]
+                           for sample_idx in sample_indices):
+                    failed_indices.append(seq_idx)
+
         if sampler_output is None or failed_indices is None:
             return sampler_output
 

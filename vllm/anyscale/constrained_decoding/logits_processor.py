@@ -165,11 +165,11 @@ class JSONModeLogitsProcessor(FaultAwareDaemon):
         memory_usage = self._process.memory_info().rss
         logger.info(
             "JSONModeLogitsProcessor call took %0.2fs, "
-            "mem usage %d/%d", et, memory_usage, MAX_MEMORY_LIMIT)
+            "mem usage %f/%f", et, memory_usage, MAX_MEMORY_LIMIT)
         if self._process.memory_info().rss > MAX_MEMORY_LIMIT:
             logger.warning(
-                "JSONModeLogitsProcessor memory usage %d "
-                "exceeded limit %d, clearing cache", memory_usage,
+                "JSONModeLogitsProcessor memory usage %f "
+                "exceeded limit %f, clearing cache", memory_usage,
                 MAX_MEMORY_LIMIT)
             self.token_enforcer_cache.cache.clear()
             self.tensor_cache.cache.clear()

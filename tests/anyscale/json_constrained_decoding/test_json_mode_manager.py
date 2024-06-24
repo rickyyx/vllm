@@ -163,7 +163,7 @@ def test_logit_processor_manager_fault_tolerance(batch_and_actor_size):
                 buffer_inds_to_batch_inds,
             )
 
-            if valid_mask is not None and not torch.all(valid_mask):
+            if valid_mask is not None and sum(valid_mask) != len(valid_mask):
                 at_least_one_failure = True
             iteration_cnt += 1
 
