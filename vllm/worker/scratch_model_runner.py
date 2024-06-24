@@ -314,10 +314,21 @@ class ScratchModelRunner:
             assert len(prefill_groups) == 0
 
         batch_size = len(session_ids)
-        hidden_states = torch.zeros(self.model_config.get_hidden_size() *
-                                    batch_size,
-                                    device="cuda",
-                                    dtype=torch.half)
+        # TODO(ricky): This is not right when all_embeddings=True. 
+        if len(prefill_groups) > 0:
+            total_input_count = sum(
+                [len(ins) for ins in input_tokens])
+            # print(f"SANG-TODO {total_input_count=}")
+            hidden_states = torch.zeros(
+                total_input_count *
+                self.model_config.get_hidden_size(),
+                device="cuda",
+                dtype=torch.half)
+        else:
+            hidden_states = torch.zeros(self.model_config.get_hidden_size() *
+                                        batch_size,
+                                        device="cuda",
+                                        dtype=torch.half)
 
         s = time.time()
         # Run prefills. Scratch currently doesn't support batch prefills, so we should
@@ -326,6 +337,15 @@ class ScratchModelRunner:
             input_tokens_tensor = torch.tensor(input_tokens[i],
                                                device="cuda",
                                                dtype=torch.int)
+            # print(input_tokens_tensor)
+
+            len_prefix_before_this = sum(
+                len(ins) for ins in input_tokens[:i])
+            # print(f"SANG-TODO {len_prefix_before_this=}")
+            hidden_states_start_index = len_prefix_before_this * self.model_config.get_hidden_size()
+            hidden_states_end_index = (len_prefix_before_this + len(input_tokens[i])) * self.model_config.get_hidden_size()
+            # print(f"SANG-TODO {hidden_states_start_index=} {hidden_states_end_index=}")
+
             self.scratch.prefill(
                 session_id,
                 input_tokens_tensor.data_ptr(),
@@ -352,38 +372,46 @@ class ScratchModelRunner:
                 hidden_states.data_ptr(),
             )
 
-        print(
-            f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}"
-        )
-        print(f"SANG-TODO {hidden_states.shape=}")
+        # print(
+        #     f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}"
+        # )
+        # print(f"SANG-TODO {hidden_states.shape=}")
+        # print(hidden_states)
         # Post process Scratch embeddings.
         hidden_states = hidden_states.view(-1,
                                            self.model_config.get_hidden_size())
         assert hidden_states.is_contiguous()
-        print(hidden_states)
-        print(f"{hidden_states.shape=}")
+        # print(hidden_states)
+        # print(f"{hidden_states.shape=}")
         # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
         # Residual is set to None because it is already added from Scratch output.
         hidden_states = self.norm(hidden_states, None)
-        print(f"{hidden_states.shape=}")
+        # print(f"{hidden_states.shape=}")
 
         # SANG-TODO remove it. Hack. It will work once scrath returns embedding of all tokens correctly.
-        print(f"{sampling_metadata.selected_token_indices=}")
-        sampling_metadata.selected_token_indices = torch.tensor(
-            [i for i in range(batch_size)], device="cuda", dtype=torch.int)
+        # if len(prefill_groups) > 0:
+        #     sampling_metadata.selected_token_indices = torch.tensor(
+        #         [len(ins) - 1 for ins in input_tokens], device="cuda", dtype=torch.int)
+        # else:
+        #     sampling_metadata.selected_token_indices = torch.tensor(
+        #         [1 for _ in range(batch_size)], device="cuda", dtype=torch.int)
+        
+        
+        # print(f"{sampling_metadata.selected_token_indices=}")
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
         output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        if len(prefill_groups) > 0:
-            print(
-                f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-            )
-        else:
-            print(
-                f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-            )
+        # if len(prefill_groups) > 0:
+        #     print(
+        #         f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
+        #     )
+        # else:
+        #     print(
+        #         f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
+        #     )
+        # print(output)
         return output
 
     def _execute_and_scratch_sample(
