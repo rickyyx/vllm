@@ -14,8 +14,8 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from vllm.anyscale.constrained_decoding.fault_tolerance import FaultAwareDaemon
 from vllm.anyscale.constrained_decoding.logits_processor import (
-    JSONLogitsProcessorInput, JSONModeLogitsProcessor,
-    JSONModeLogitsProcessorV2)
+    JSONLogitsProcessorInput, JSONLogitsProcessorInputV2,
+    JSONModeLogitsProcessor, JSONModeLogitsProcessorV2)
 from vllm.anyscale.shm.msgspec_shm import (RayEvent, SharedMemoryManager,
                                            SharedMemoryReadDataError,
                                            SharedMsgspecBufferWithEvent)
@@ -70,7 +70,7 @@ class JSONModeManager:
                  vocab_size: int,
                  recreate_failed_actors: bool = True,
                  max_restarts: int = 5,
-                 delay_between_actor_restarts_s: int = 0.0,
+                 delay_between_actor_restarts_s: float = 0.0,
                  logit_processor_cls: Optional[Union[
                      str, Type[FaultAwareDaemon]]] = None,
                  use_v2: bool = False,
@@ -135,11 +135,8 @@ class JSONModeManager:
         """
 
         self._use_v2 = use_v2
+        logger.info("Use json mode v2: %s", self._use_v2)
         self._has_sent_payload = False
-
-        # TODO(sang): Allow v2.
-        if self._use_v2:
-            raise ValueError("JsonModeManager V2 is not working yet.")
 
         default_logit_processor_cls = (JSONModeLogitsProcessorV2
                                        if use_v2 else JSONModeLogitsProcessor)
@@ -494,17 +491,17 @@ class JSONModeManager:
 
     def _convert_payloads_to_processor_input(
         self, payloads: List[JSONLogitsProcessorPayload]
-        # ) -> Union[JSONLogitsProcessorInput, JSONLogitsProcessorInputV2]:
-    ) -> JSONLogitsProcessorInput:
+    ) -> Union[JSONLogitsProcessorInput, JSONLogitsProcessorInputV2]:
         """Converts the payloads to the input for the json logits processors."""
 
-        # if self._use_v2:
-        #     input_list = []
-        #     for payload in payloads:
-        #         input_list.append((payload.output_token_ids, payload.schema,
-        #                            payload.payload_id))
+        if self._use_v2:
+            input_list = []
+            for payload in payloads:
+                input_list.append((payload.output_token_ids, payload.schema,
+                                   payload.payload_id))
 
-        #     return JSONLogitsProcessorInputV2(input_list=input_list)
+            return JSONLogitsProcessorInputV2(input_list=input_list)
+
         return JSONLogitsProcessorInput(input_list=[(
             p.output_token_ids,
             p.schema,

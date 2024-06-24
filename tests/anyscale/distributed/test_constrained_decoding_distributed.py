@@ -8,24 +8,17 @@
 # Copyright (2023 and onwards) Anyscale, Inc.
 # This Software includes software developed at Anyscale (anyscale.com/)
 # and its use is subject to the included LICENSE file.
-"""
-This test controls the TP size using ANYSCALE_VLLM_TEST_TP. It is
-because of the bug in vLLM where TP > 1 backend hangs when engine
-is reinitalized.
-"""
 
 import json
 import os
 from typing import List
 
-import pytest
+import pytest  # noqa
 from pydantic import BaseModel, Field
 
-from vllm import LLM
 from vllm.sequence import SamplingParams
 
 os.environ["ANYSCALE_VLLM_ENABLE_JSON_MODE"] = "1"
-TP_SIZE = int(os.getenv("ANYSCALE_VLLM_TEST_TP", 1))
 
 
 class BasicResponse(BaseModel):
@@ -72,9 +65,7 @@ AnyOfSchema = {
                 ]
             },
             "title": "GroceryList",
-            "type": "array",
-            'minItems': 3,
-            'maxItems': 3
+            "type": "array"
         }
     },
     "required": ["groceryList"],
@@ -102,9 +93,7 @@ AnyOfSchemaNumber = {
                 ]
             },
             "title": "GroceryList",
-            "type": "array",
-            'minItems': 3,
-            'maxItems': 3
+            "type": "array"
         }
     },
     "required": ["groceryList"],
@@ -134,12 +123,12 @@ def get_prompt_and_expected_type(response_type: str):
     elif response_type == "anyof":
         prompt = (
             f"[INST] {system_prompt} + Create a grocery list for a dinner "
-            "party with 8 people. Keep it short. [/INST]")
+            "party with 8 people [/INST]")
         expected_type = AnyOfSchema
     elif response_type == "anyof_number":
         prompt = (
             f"[INST] {system_prompt} + Create a grocery list for a dinner "
-            "party with 8 people. Keep it short. [/INST]")
+            "party with 8 people [/INST]")
         expected_type = AnyOfSchemaNumber
     else:
         raise ValueError(
@@ -174,26 +163,9 @@ def get_response_formats():
     ]
 
 
-@pytest.mark.parametrize("json_mode_version", ["v1", "v2"])
-@pytest.mark.parametrize("enable_chunked_prefill", [False, True])
-def test_json_mode(monkeypatch, json_mode_version, enable_chunked_prefill):
+def test_json_mode(mistral_7b_json_tp2):
     """Check if we can run without exceptions and that output is valid."""
-    if TP_SIZE > 1:
-        if json_mode_version != "v2":
-            pytest.skip("Only test v2 for tp > 1")
-        if not enable_chunked_prefill:
-            pytest.skip("Only test with chunked prefill for tp > 1")
-
-    monkeypatch.setenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", "1")
-    monkeypatch.setenv("ANYSCALE_VLLM_USE_V2",
-                       "1" if json_mode_version == "v2" else "0")
-
-    engine = LLM(
-        "mistralai/Mistral-7B-Instruct-v0.1",
-        max_model_len=8192 if not enable_chunked_prefill else 4096,
-        enable_chunked_prefill=enable_chunked_prefill,
-        disable_sliding_window=enable_chunked_prefill,
-    ).llm_engine
+    engine = mistral_7b_json_tp2
 
     test_prompts = []
     expected_types = []

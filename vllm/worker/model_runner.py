@@ -735,7 +735,9 @@ class ModelRunner:
             self.set_active_loras(lora_requests, lora_mapping)
 
         # Anyscale start
-        if anyscale_envs.ENABLE_JSON_MODE:
+        if (anyscale_envs.ENABLE_JSON_MODE
+                and seq_group_metadata_list is not None):
+            # seq_group_metadata_list is None for non-driver.
             logit_processor = getattr(self.model, "logits_processor", None)
             assert logit_processor is not None
             logit_processor.prepare(seq_group_metadata_list)
@@ -760,7 +762,9 @@ class ModelRunner:
 
         # Compute the logits.
         # Anyscale start
-        if anyscale_envs.ENABLE_JSON_MODE:
+        if (anyscale_envs.ENABLE_JSON_MODE
+                and seq_group_metadata_list is not None):
+            # seq_group_metadata_list is None for non-driver.
             logits, failed_indices = self.model.compute_logits(
                 hidden_states, sampling_metadata)
         else:

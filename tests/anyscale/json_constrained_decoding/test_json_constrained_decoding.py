@@ -69,20 +69,22 @@ def get_schema_variations() -> List[str]:
 
 @pytest.mark.parametrize("model", MODELS)
 @pytest.mark.parametrize("schema", get_schema_variations())
-# @pytest.mark.parametrize("json_mode_version", ["v1", "v2"])
-@pytest.mark.parametrize("json_mode_version", ["v1"])
+@pytest.mark.parametrize("json_mode_version", ["v1", "v2"])
 def test_json_constrained_decoding(
+    monkeypatch,
     vllm_runner,
     model: str,
     schema: str,
     json_mode_version: str,
 ) -> None:
     """Test that the model can generate a valid answer for a json schema."""
+    if json_mode_version == "v2":
+        monkeypatch.setenv("ANYSCALE_VLLM_USE_V2", "1")
+
     print(f"loading model {model}...")
     model = vllm_runner(
         model,
         max_model_len=4096,
-        # enable_json_mode_v2=(json_mode_version == "v2"),
     )
 
     response_format = {"type": "json", "schema": schema}

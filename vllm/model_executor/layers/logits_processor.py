@@ -247,8 +247,11 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
             embedding_bias,
         )
 
-        json_mask_success = self._apply_json_logits_processor(logits)
+        # Non-driver worker can return None for logits.
+        if logits is None:
+            return logits, None
 
+        json_mask_success = self._apply_json_logits_processor(logits)
         # Find failed sequence groups.
         failed_seq_group_indices = None
         if json_mask_success is not None:
