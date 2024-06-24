@@ -52,5 +52,6 @@ popd
 echo "Build scratchllm"
 # used for pybind.
 git submodule update --init --recursive
+# TODO(sang): Support custom flags.
 make h=cuda t=f16 b=fullopt scratch_runner
 popd

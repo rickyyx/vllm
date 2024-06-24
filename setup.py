@@ -216,13 +216,13 @@ class cmake_build_ext(build_ext):
         subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
         subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", self.build_temp])
         print("Copy .so file to vllm folder.")
-        # TODO(sang): Stop hard coding the file name.
+        # TODO(sang): Support flexible .so file names.
         subprocess.check_call([
             "cp",
             "-f",
-            f"{self.build_temp}/scratchllm/*.so",
-            "vllm"
-        ], cwd=os.path.join(ROOT_DIR, "vllm"))
+            f"{ROOT_DIR}/{self.build_temp}/scratchllm/scratch.cpython-39-x86_64-linux-gnu.so",
+            os.path.join(ROOT_DIR, "vllm"),
+        ])
         # Anyscale end
 
 
