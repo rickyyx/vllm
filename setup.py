@@ -211,16 +211,18 @@ class cmake_build_ext(build_ext):
         if not BUILD_SCRATCH:
             return
         
+        temp_dir_path = os.path.join(ROOT_DIR, self.build_temp)
         print("Build and install ScratchLLM.")
         print("Make sure to run ")
         subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
-        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", self.build_temp])
+        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
         print("Copy .so file to vllm folder.")
         # TODO(sang): Support flexible .so file names.
+        subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
         subprocess.check_call([
             "cp",
             "-f",
-            f"{ROOT_DIR}/{self.build_temp}/scratchllm/scratch.cpython-39-x86_64-linux-gnu.so",
+            f"{temp_dir_path}/scratchllm/scratch.cpython-39-x86_64-linux-gnu.so",
             os.path.join(ROOT_DIR, "vllm"),
         ])
         # Anyscale end

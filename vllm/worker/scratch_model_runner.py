@@ -350,7 +350,6 @@ class ScratchModelRunner:
             # print(f"SANG-TODO {hidden_states.shape=}")
             print(f"SANG-TODO {hidden_states[hidden_states_start_index: hidden_states_end_index].shape=}")
             assert hidden_states[hidden_states_start_index: hidden_states_end_index].is_contiguous()
-
             self.scratch.prefill(
                 session_id,
                 input_tokens_tensor.data_ptr(),
