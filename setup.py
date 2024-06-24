@@ -38,6 +38,8 @@ assert sys.platform.startswith(
 
 MAIN_CUDA_VERSION = "12.1"
 
+BUILD_SCRATCH = os.getenv("ANYSCALE_USE_SCRATCH_LLM", None)
+
 
 def is_sccache_available() -> bool:
     return which("sccache") is not None
@@ -203,6 +205,25 @@ class cmake_build_ext(build_ext):
         ]
 
         subprocess.check_call(["cmake", *build_args], cwd=self.build_temp)
+
+        # Anyscale start
+        # Additionally build scratchLLM if it is required.
+        if not BUILD_SCRATCH:
+            return
+        
+        print("Build and install ScratchLLM.")
+        print("Make sure to run ")
+        subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
+        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", self.build_temp])
+        print("Copy .so file to vllm folder.")
+        # TODO(sang): Stop hard coding the file name.
+        subprocess.check_call([
+            "cp",
+            "-f",
+            f"{self.build_temp}/scratchllm/*.so",
+            "vllm"
+        ], cwd=os.path.join(ROOT_DIR, "vllm"))
+        # Anyscale end
 
 
 def _is_cuda() -> bool:
