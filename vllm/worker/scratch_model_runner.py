@@ -262,7 +262,7 @@ class ScratchModelRunner:
         query_lens = []
         seq_lens = []
         for seq_group_metadata in seq_group_metadata_list:
-            request_id = int(seq_group_metadata.request_id)
+            request_id = seq_group_metadata.request_id
             session_ids.append(
                 self._scratch_session_manager.get_or_create_session(
                     request_id).scratch_session_id)

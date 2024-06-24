@@ -102,6 +102,8 @@ def run_vllm(
         enable_chunked_prefill=enable_chunked_prefill,
         max_num_batched_tokens=max_num_batched_tokens,
         distributed_executor_backend=distributed_executor_backend,
+        block_size=32,
+        max_num_seqs=2,
     )
 
     # Add the requests to the engine.
