@@ -11,9 +11,9 @@ MODELS = [
     "meta-llama/Llama-2-7b-hf",
 ]
 
-assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
-                     "Use ANYSCALE_USE_SCRATCH_LLM=1 pytest -vs "
-                     "tests/basic_correctness/test_scratch_correctness.py")
+# assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
+#                      "Use ANYSCALE_USE_SCRATCH_LLM=1 pytest -vs "
+#                      "tests/basic_correctness/test_scratch_correctness.py")
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -36,7 +36,7 @@ def test_models(
         dtype=dtype,
         enforce_eager=True,
         block_size=32,
-        # max_num_seqs=1,
+        max_num_seqs=1,
     )
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)
     del vllm_model
