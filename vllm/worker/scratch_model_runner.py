@@ -293,11 +293,11 @@ class ScratchModelRunner:
                                                      seq_lens, query_lens,
                                                      self.device,
                                                      self.pin_memory)
-        # return self._execute_and_vllm_sample(prefill_groups, decode_groups,
-        #                                      input_tokens, session_ids,
-        #                                      parent_ids, sampling_metadata)
-        return self._execute_and_scratch_sample(
-            prefill_groups, decode_groups, input_tokens, session_ids, parent_ids)
+        return self._execute_and_vllm_sample(prefill_groups, decode_groups,
+                                             input_tokens, session_ids,
+                                             parent_ids, sampling_metadata)
+        # return self._execute_and_scratch_sample(
+        #     prefill_groups, decode_groups, input_tokens, session_ids, parent_ids)
 
     def _execute_and_vllm_sample(
             self,
@@ -336,6 +336,7 @@ class ScratchModelRunner:
                 # Needs to be True.
                 False,
             )
+        print(f"{hidden_states=}")
 
         # Run decodes.
         if len(decode_groups) > 0:
