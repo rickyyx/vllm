@@ -9,6 +9,7 @@ aws s3 sync s3://endpoints-llava-test/images/ tests/images
 source .buildkite/ci/bash_util/timeout.sh
 
 # Distributed tests.
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
 TEST_DIST_MODEL=facebook/opt-125m DISTRIBUTED_EXECUTOR_BACKEND=ray run_with_timeout $(( 20 * 60 )) pytest -v -s tests/distributed/test_basic_distributed_correctness.py
 # TEST_DIST_MODEL=meta-llama/Llama-2-7b-hf DISTRIBUTED_EXECUTOR_BACKEND=ray run_with_timeout $(( 20 * 60 )) pytest -v -s tests/distributed/test_basic_distributed_correctness.py
 TEST_DIST_MODEL=facebook/opt-125m DISTRIBUTED_EXECUTOR_BACKEND=ray run_with_timeout $(( 20 * 60 )) pytest -v -s tests/distributed/test_chunked_prefill_distributed.py

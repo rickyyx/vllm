@@ -50,4 +50,3 @@ jobs:
         mypy vllm/lora --config-file pyproject.toml
         mypy vllm/logging --config-file pyproject.toml
         mypy tests --config-file pyproject.toml
-

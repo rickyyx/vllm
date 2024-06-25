@@ -55,7 +55,9 @@ files = "vllm"
 exclude = [
     "vllm/model_executor/parallel_utils/|vllm/model_executor/models/",
     # Ignore triton kernels in ops.
-    'vllm/attention/ops/.*\.py$'
+    'vllm/attention/ops/.*\.py$',
+    # Anyscale folder should be excluded.
+    "tests/anyscale/*"
 ]
 
 [tool.codespell]
