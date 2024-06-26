@@ -26,10 +26,29 @@ sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 6AF7F09730B3F0A4
 sudo apt update
 sudo apt install -y cmake
 
+# Do not compile with debug symbol to reduce wheel size
+export CMAKE_BUILD_TYPE="Release"
 
+python_executable=python$1
+cuda_home=/usr/local/cuda-$2
 
-echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
-BUILD_BAZEL=1 python setup.py bdist_wheel
+# Update paths
+PATH=${cuda_home}/bin:$PATH
+LD_LIBRARY_PATH=${cuda_home}/lib64:$LD_LIBRARY_PATH
+
+# Install requirements
+$python_executable -m pip install wheel packaging
+$python_executable -m pip install -r requirements-cuda.txt
+
+# Limit the number of parallel jobs to avoid OOM
+export MAX_JOBS=24
+# Make sure punica is built for the release (for LoRA)
+export VLLM_INSTALL_PUNICA_KERNELS=1
+# Make sure release wheels are built for the following architectures
+export TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0+PTX"
+# Build
+$python_executable setup.py bdist_wheel --dist-dir=dist
+
 
 VLLM_WHEEL=$(basename $(ls dist/*.whl))
 COMMIT_PATH="${S3_WHEEL_CACHE}/${VLLM_PROJECT}/${GIT_COMMIT}/${VLLM_WHEEL}"
