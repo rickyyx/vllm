@@ -28,8 +28,6 @@ from vllm.sequence import (
     CompletionSequenceGroupOutput,
 )
 from vllm.model_executor.model_loader import get_model
-from vllm.model_executor.model_loader.utils import set_default_torch_dtype
-from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.utils import CudaMemoryProfiler
 from vllm.sequence import Logprob
 from vllm.model_executor import SamplingMetadata
@@ -142,13 +140,6 @@ class ScratchModelRunner:
         # do that, we create a torch module with lm_head weights loaded.
         self.model: nn.Module
         self._scratch_session_manager: ScratchSessionManager
-        # It is a hack. SANG-TODO Move it to Scratch Model module.
-        with set_default_torch_dtype(model_config.dtype):
-            with torch.device(device_config.device):
-                self.norm = RMSNorm(
-                    self.model_config.hf_config.hidden_size,
-                    eps=self.model_config.hf_config.rms_norm_eps)
-
         self._verify_scratch_config()
 
     def _verify_scratch_config(self):
@@ -318,7 +309,6 @@ class ScratchModelRunner:
         if len(prefill_groups) > 0:
             total_input_count = sum(
                 [len(ins) for ins in input_tokens])
-            # print(f"SANG-TODO {total_input_count=}")
             hidden_states = torch.zeros(
                 total_input_count *
                 self.model_config.get_hidden_size(),
@@ -386,12 +376,15 @@ class ScratchModelRunner:
         hidden_states = hidden_states.view(-1,
                                            self.model_config.get_hidden_size())
         if len(prefill_groups) > 0:
-            print(hidden_states)
+            print(f"SANG-TODO before norm {hidden_states=}")
+            print(f"SANG-TODO {hidden_states.shape=}")
         # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
         # Residual is set to None because it is already added from Scratch output.
-        hidden_states = self.norm(hidden_states, None)
+        hidden_states = self.model.norm(hidden_states, None)
         if len(prefill_groups) > 0:
-            print(hidden_states)
+            print(f"SANG-TODO norm weights: {self.model.norm.weight=}")
+            print(f"SANG-TODO {hidden_states.shape=}")
+            print(f"SANG-TODO after norm {hidden_states=}")
         # print(f"{hidden_states.shape=}")
 
         # SANG-TODO remove it. Hack. It will work once scrath returns embedding of all tokens correctly.

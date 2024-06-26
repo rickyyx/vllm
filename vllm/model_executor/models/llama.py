@@ -293,7 +293,7 @@ class LlamaModel(nn.Module):
                 attn_metadata,
                 residual,
             )
-        print(f"SANG-TODO before norm {hidden_states=}")
+        print(f"SANG-TODO before norm + residual {hidden_states + residual.to(torch.float32)=}")
         print(f"SANG-TODO before norm {hidden_states.shape=}")
         hidden_states, _ = self.norm(hidden_states, residual)
         print(f"SANG-TODO after norm {hidden_states=}")

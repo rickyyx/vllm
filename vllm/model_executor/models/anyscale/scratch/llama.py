@@ -44,6 +44,8 @@ class LlamaForCausalLM(nn.Module):
                                       config.hidden_size,
                                       org_num_embeddings=config.vocab_size,
                                       padding_size=DEFAULT_VOCAB_PADDING_SIZE)
+        
+        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         if config.tie_word_embeddings:
             embed_tokens = VocabParallelEmbedding(
                 config.vocab_size,
@@ -106,10 +108,14 @@ class LlamaForCausalLM(nn.Module):
                 break
             else:
                 # It should only load lm_head related weights.
+                # TODO(ricky):
+                if name == "model.norm.weight":
+                    name = "norm.weight"
+
                 if name not in params_dict:
                     continue
                 param = params_dict[name]
-                print(name, "loaded")
+                print(name, "loaded here")
                 weight_loader = getattr(param, "weight_loader",
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
