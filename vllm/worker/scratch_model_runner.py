@@ -1,5 +1,7 @@
 from typing import List, Optional, Set, Hashable
 import time
+import importlib.util
+import sys
 
 import torch
 import torch.nn as nn
@@ -38,12 +40,21 @@ logger = init_logger(__name__)
 
 LLAMA_7B_VOCAB_SIZE = 32000
 
-from vllm.scratch import ScratchAPI
-from vllm.scratch_env import (SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX,
+from vllm.scratch_env import (SCRATCH_EXECUTABLE_PATH, SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX,
                               SCRATCH_WEIGHTS_BUCKET_NAME)
 
 # SANG-TODO WORKS?
 MODEL_PARAMS_PATH = "/home/ray/default/weights"
+
+
+def import_scratch(path: Path):
+    SCRATCH_MODULE_NAME = "scratch"
+    logger.info(f"Importing scratch module from {path}")
+    spec = importlib.util.spec_from_file_location(SCRATCH_MODULE_NAME, path.resolve())
+    scratch = importlib.util.module_from_spec(spec)
+    sys.modules[SCRATCH_MODULE_NAME] = scratch
+    spec.loader.exec_module(scratch)
+    return scratch
 
 
 class ScratchSession:
@@ -54,7 +65,7 @@ class ScratchSession:
 
 class ScratchLRUCache(LRUCache[ScratchSession]):
 
-    def __init__(self, capacity: int, scratch_api: ScratchAPI):
+    def __init__(self, capacity: int, scratch_api):
         self._scratch_api = scratch_api
         super().__init__(capacity)
 
@@ -77,7 +88,7 @@ class ScratchSessionManager:
     information to model runner in a few weeks.
     """
 
-    def __init__(self, scratch_api: ScratchAPI, max_num_seqs: int):
+    def __init__(self, scratch_api, max_num_seqs: int):
         # ScratchAPI used to create/delete sessions.
         self._scratch_api = scratch_api
         # Set capacity to max_num_seqs * 2 so that old sequences are
@@ -134,7 +145,7 @@ class ScratchModelRunner:
         self.pin_memory = is_pin_memory_available()
 
         # Lazily initialized.
-        self.scratch: ScratchAPI
+        self.scratch: "ScratchAPI" # type: ignore
         # Scratch only returns embedding. We need to multiply it to lm_head
         # to get the final logits, and that happens in vLLM. In order to
         # do that, we create a torch module with lm_head weights loaded.
@@ -155,8 +166,10 @@ class ScratchModelRunner:
             "Vision model not supported")
         assert self.kv_cache_dtype == "auto", (
             "Currently, Scratch doesn't use kv cache.")
-        assert "llama-2" in self.model_config.model.lower(), (
-            "Only Llama 7B is supported.")
+        # SANG-TODO Support only llama 2 and 3.
+        assert ("llama-2" in self.model_config.model.lower()
+                    or "llama-3" in self.model_config.model.lower()), (
+            "Only Llama 2 7B or llama 3 8B is supported.")
         assert self.lora_manager is None, ("lora is not supported.")
         assert self.model_config.enforce_eager is True, (
             "cuda graph is not needed for Scratch.")
@@ -171,7 +184,12 @@ class ScratchModelRunner:
         weights_dir = tmp_dir / "parameters"
         weights_dir.mkdir(exist_ok=True)
         # TODO(sang): Need to obtain this programmatically.
-        download_dir = weights_dir / "ll27b-s1-cuda-f16-fullopt"
+        # download_dir = weights_dir / "ll27b-s1-cuda-f16-fullopt"
+        scratch_mod = import_scratch(Path(SCRATCH_EXECUTABLE_PATH))
+        base_dir = str(weights_dir.resolve())
+        self.scratch = scratch_mod.ScratchAPI(base_dir) 
+        scratch_subdir = self.scratch.get_param_subdir()
+        download_dir = weights_dir / scratch_subdir 
         download_dir.mkdir(exist_ok=True)
         download_dir_path = str(download_dir.absolute())
         self.load_config.download_dir = str(weights_dir.absolute())
@@ -190,7 +208,6 @@ class ScratchModelRunner:
                 scheduler_config=self.scheduler_config,
                 cache_config=self.cache_config,
             )
-            self.scratch = ScratchAPI(str(weights_dir.absolute()))
             self.scratch.start()
             self._scratch_session_manager = ScratchSessionManager(
                 self.scratch, self.scheduler_config.max_num_seqs)
@@ -223,7 +240,8 @@ class ScratchModelRunner:
                     dirs.append(k)
             next_token = results.get('NextContinuationToken')
         # Assume there's no subdirectories.
-        assert len(dirs) == 1
+        dirs = {p.rsplit("/", 1)[0] for p in files}
+        assert len(dirs) == 1, dirs
 
         # NOTE(sang): Versioning is not supported now. We assume the
         # weights are always the same.
@@ -285,8 +303,8 @@ class ScratchModelRunner:
                                                      self.device,
                                                      self.pin_memory)
         return self._execute_and_vllm_sample(prefill_groups, decode_groups,
-                                             input_tokens, session_ids,
-                                             parent_ids, sampling_metadata)
+                                            input_tokens, session_ids,
+                                            parent_ids, sampling_metadata)
         # return self._execute_and_scratch_sample(
         #     prefill_groups, decode_groups, input_tokens, session_ids, parent_ids)
 
@@ -327,7 +345,7 @@ class ScratchModelRunner:
             input_tokens_tensor = torch.tensor(input_tokens[i],
                                                device="cuda",
                                                dtype=torch.int)
-            print(f"SANG-TODO {input_tokens_tensor=}")
+            # print(f"SANG-TODO {input_tokens_tensor=}")
             assert input_tokens_tensor.is_contiguous()
             # print(f"SANG-TODO {input_tokens_tensor.shape=}")
 
@@ -338,7 +356,7 @@ class ScratchModelRunner:
             hidden_states_end_index = (len_prefix_before_this + len(input_tokens[i])) * self.model_config.get_hidden_size()
             # print(f"SANG-TODO {hidden_states_start_index=} {hidden_states_end_index=}")
             # print(f"SANG-TODO {hidden_states.shape=}")
-            print(f"SANG-TODO {hidden_states[hidden_states_start_index: hidden_states_end_index].shape=}")
+            # print(f"SANG-TODO {hidden_states[hidden_states_start_index: hidden_states_end_index].shape=}")
             assert hidden_states[hidden_states_start_index: hidden_states_end_index].is_contiguous()
             self.scratch.prefill(
                 session_id,
@@ -363,9 +381,9 @@ class ScratchModelRunner:
                 hidden_states.data_ptr(),
             )
 
-        print(
-            f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}"
-        )
+        # print(
+        #     f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}"
+        # )
         # print(hidden_states)
         # print(f"SANG-TODO {hidden_states.shape=}")
         # Post process Scratch embeddings.
@@ -375,16 +393,16 @@ class ScratchModelRunner:
         # is this expected? 
         hidden_states = hidden_states.view(-1,
                                            self.model_config.get_hidden_size())
-        if len(prefill_groups) > 0:
-            print(f"SANG-TODO before norm {hidden_states=}")
-            print(f"SANG-TODO {hidden_states.shape=}")
+        # if len(prefill_groups) > 0:
+            # print(f"SANG-TODO before norm {hidden_states=}")
+            # print(f"SANG-TODO {hidden_states.shape=}")
         # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
         # Residual is set to None because it is already added from Scratch output.
         hidden_states = self.model.norm(hidden_states, None)
-        if len(prefill_groups) > 0:
-            print(f"SANG-TODO norm weights: {self.model.norm.weight=}")
-            print(f"SANG-TODO {hidden_states.shape=}")
-            print(f"SANG-TODO after norm {hidden_states=}")
+        # if len(prefill_groups) > 0:
+        #     print(f"SANG-TODO norm weights: {self.model.norm.weight=}")
+        #     print(f"SANG-TODO {hidden_states.shape=}")
+        #     print(f"SANG-TODO after norm {hidden_states=}")
         # print(f"{hidden_states.shape=}")
 
         # SANG-TODO remove it. Hack. It will work once scrath returns embedding of all tokens correctly.
@@ -401,14 +419,14 @@ class ScratchModelRunner:
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        if len(prefill_groups) > 0:
-            print(
-                f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-            )
-        else:
-            print(
-                f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-            )
+        # if len(prefill_groups) > 0:
+        #     print(
+        #         f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
+        #     )
+        # else:
+        #     print(
+        #         f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
+        #     )
         # print(output)
         return output
 
@@ -443,7 +461,7 @@ class ScratchModelRunner:
                 batch_size,
                 tokens_out.data_ptr(),
             )
-        print(f"SANG-TODO token: {tokens_out}")
+        # print(f"SANG-TODO token: {tokens_out}")
 
         result_tokens = tokens_out.tolist()
         outputs = []
@@ -462,7 +480,7 @@ class ScratchModelRunner:
                 )
             )
         output = SamplerOutput(outputs=outputs)
-        print(output)
+        # print(output)
         return output
 
     @torch.inference_mode()

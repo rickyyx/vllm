@@ -371,6 +371,8 @@ def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
 
 def raise_if_cache_size_invalid(num_gpu_blocks, block_size,
                                 max_model_len) -> None:
+    if USE_SCRATCH:
+        return
     if num_gpu_blocks <= 0:
         raise ValueError("No available memory for the cache blocks. "
                          "Try increasing `gpu_memory_utilization` when "
