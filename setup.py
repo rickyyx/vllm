@@ -38,7 +38,7 @@ assert sys.platform.startswith(
 
 MAIN_CUDA_VERSION = "12.1"
 
-BUILD_SCRATCH = os.getenv("ANYSCALE_USE_SCRATCH_LLM", None)
+# BUILD_SCRATCH = os.getenv("ANYSCALE_USE_SCRATCH_LLM", None)
 
 
 def is_sccache_available() -> bool:
@@ -207,10 +207,7 @@ class cmake_build_ext(build_ext):
         subprocess.check_call(["cmake", *build_args], cwd=self.build_temp)
 
         # Anyscale start
-        # Additionally build scratchLLM if it is required.
-        if not BUILD_SCRATCH:
-            return
-        
+        # Additionally build scratchLLM.
         temp_dir_path = os.path.join(ROOT_DIR, self.build_temp)
         print("Build and install ScratchLLM.")
         subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
@@ -225,12 +222,15 @@ class cmake_build_ext(build_ext):
             # SANG-TODO A10
             "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
         ]
+        # where .so files will be written, should be the same for all extensions
+        outdir = os.path.abspath(
+            os.path.dirname(self.get_ext_fullpath(ext.name)))
         for shared_object_file in scratch_so_files:
             subprocess.check_call([
                 "cp",
                 "-f",
                 f"{temp_dir_path}/scratchllm/{shared_object_file}",
-                os.path.join(ROOT_DIR, "vllm"),
+                outdir,
             ])
         # Anyscale end
 
@@ -424,6 +424,7 @@ if not _is_neuron():
 package_data = {
     "vllm": ["py.typed", "model_executor/layers/fused_moe/configs/*.json"]
 }
+
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []
     package_data["vllm"].append("*.so")
