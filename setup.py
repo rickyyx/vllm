@@ -220,8 +220,10 @@ class cmake_build_ext(build_ext):
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
         # SANG-TODO: Support flexible models and shard size.
         scratch_so_files = [
-            "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-
+            # SANG-TODO H100
+            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+            # SANG-TODO A10
+            "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
         ]
         for shared_object_file in scratch_so_files:
             subprocess.check_call([

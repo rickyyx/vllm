@@ -29,7 +29,8 @@ sudo apt install -y cmake
 
 
 echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
-BUILD_BAZEL=1 python setup.py bdist_wheel
+# Build scratch together.
+ANYSCALE_USE_SCRATCH_LLM=1 BUILD_BAZEL=1 python setup.py bdist_wheel
 
 VLLM_WHEEL=$(basename $(ls dist/*.whl))
 COMMIT_PATH="${S3_WHEEL_CACHE}/${VLLM_PROJECT}/${GIT_COMMIT}/${VLLM_WHEEL}"

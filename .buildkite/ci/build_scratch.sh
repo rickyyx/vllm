@@ -17,8 +17,7 @@ rm -rf ${SCRATCH_DIR}
 git clone git@github.com:anyscale/scratchllm.git ${SCRATCH_DIR}
 pushd ${SCRATCH_DIR}
 
-# TEMPORARY.
-# git checkout <commit>
+git checkout a10-deployment
 
 echo "Build glog"
 git clone https://github.com/google/glog.git
@@ -34,6 +33,8 @@ chmod 700 setup_pybind.sh
 bash setup_pybind.sh
 
 # TODO(sang): Support custom flags.
-# TODO(sang): Use s=4 for H100.
-make m=ll38b h=cuda t=f16 b=fullopt s=4 scratch_runner
+# SANG-TODO H100
+# make m=ll38b h=cuda t=f16 b=fullopt s=4 scratch_runner
+# SANG-TODO A10
+make m=ll38b h=cuda t=f16 b=fullopt s=1 scratch_runner
 popd
