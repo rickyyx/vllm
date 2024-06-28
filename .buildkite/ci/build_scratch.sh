@@ -28,30 +28,12 @@ cmake --build build
 sudo cmake --build build --target install
 popd
 
-# echo "Build sentencepiece"
-# git clone https://github.com/google/sentencepiece.git 
-# pushd sentencepiece
-# mkdir build
-# cd build
-# cmake ..
-# make -j $(nproc)
-# sudo make install
-# sudo ldconfig -v
-# popd
-# 
-# echo "Build tiktokencpp"
-# git clone git@github.com:anyscale/tiktokencpp.git
-# pushd tiktokencpp
-# mkdir build
-# cd build
-# cmake ..
-# make
-# sudo make install
-# popd
-
 echo "Build scratchllm"
 # used for pybind.
-git submodule update --init --recursive
+chmod 700 setup_pybind.sh
+bash setup_pybind.sh
+
 # TODO(sang): Support custom flags.
+# TODO(sang): Use s=4 for H100.
 make m=ll38b h=cuda t=f16 b=fullopt s=4 scratch_runner
 popd

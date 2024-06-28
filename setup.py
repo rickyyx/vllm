@@ -213,18 +213,23 @@ class cmake_build_ext(build_ext):
         
         temp_dir_path = os.path.join(ROOT_DIR, self.build_temp)
         print("Build and install ScratchLLM.")
-        print("Make sure to run ")
         subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
         subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
         print("Copy .so file to vllm folder.")
         # TODO(sang): Support flexible .so file names.
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
-        subprocess.check_call([
-            "cp",
-            "-f",
-            f"{temp_dir_path}/scratchllm/scratch.cpython-39-x86_64-linux-gnu.so",
-            os.path.join(ROOT_DIR, "vllm"),
-        ])
+        # SANG-TODO: Support flexible models and shard size.
+        scratch_so_files = [
+            "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+
+        ]
+        for shared_object_file in scratch_so_files:
+            subprocess.check_call([
+                "cp",
+                "-f",
+                f"{temp_dir_path}/scratchllm/{shared_object_file}",
+                os.path.join(ROOT_DIR, "vllm"),
+            ])
         # Anyscale end
 
 
