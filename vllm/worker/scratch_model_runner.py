@@ -305,8 +305,8 @@ class ScratchModelRunner:
                                                      self.device,
                                                      self.pin_memory)
         return self._execute_and_vllm_sample(prefill_groups, decode_groups,
-                                             input_tokens, session_ids,
-                                             parent_ids, sampling_metadata)
+                                            input_tokens, session_ids,
+                                            parent_ids, sampling_metadata)
         # return self._execute_and_scratch_sample(
         #     prefill_groups, decode_groups, input_tokens, session_ids, parent_ids)
 

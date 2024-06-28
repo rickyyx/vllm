@@ -8,8 +8,8 @@ from vllm.scratch_env import USE_SCRATCH
 
 MODELS = [
     # "facebook/opt-125m",
-    # "meta-llama/Llama-2-7b-hf",
-    "meta-llama/Meta-Llama-3-8B-Instruct",
+    #"meta-llama/Llama-2-7b-hf",
+    "meta-llama/Meta-Llama-3-8B",
 ]
 
 # assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
