@@ -11,7 +11,6 @@ MODELS = [
     # "meta-llama/Llama-2-7b-hf",
     "meta-llama/Meta-Llama-3-8B",
 ]
-breakpoint()
 
 assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
                      "Use ANYSCALE_USE_SCRATCH_LLM=1 pytest -vs "

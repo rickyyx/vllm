@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from shutil import which
 from typing import Dict, List
 
@@ -206,34 +207,6 @@ class cmake_build_ext(build_ext):
 
         subprocess.check_call(["cmake", *build_args], cwd=self.build_temp)
 
-        # Anyscale start
-        # Additionally build scratchLLM.
-        temp_dir_path = os.path.join(ROOT_DIR, self.build_temp)
-        print("Build and install ScratchLLM.")
-        subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
-        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
-        print("Copy .so file to vllm folder.")
-        # TODO(sang): Support flexible .so file names.
-        subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
-        # SANG-TODO: Support flexible models and shard size.
-        scratch_so_files = [
-            # SANG-TODO H100
-            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-            # SANG-TODO A10
-            "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-        ]
-        # where .so files will be written, should be the same for all extensions
-        outdir = os.path.abspath(
-            os.path.dirname(self.get_ext_fullpath(ext.name)))
-        for shared_object_file in scratch_so_files:
-            subprocess.check_call([
-                "cp",
-                "-f",
-                f"{temp_dir_path}/scratchllm/{shared_object_file}",
-                outdir,
-            ])
-        # Anyscale end
-
 
 def _is_cuda() -> bool:
     return VLLM_TARGET_DEVICE == "cuda" \
@@ -410,10 +383,39 @@ def get_requirements() -> List[str]:
     return requirements
 
 
+# Anyscale start
+def build_scratch():
+    # Additionally build scratchLLM.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = str(temp_dir)
+        print("Build and install ScratchLLM.")
+        subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
+        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
+        print("Copy .so file to vllm folder.")
+        # TODO(sang): Support flexible .so file names.
+        subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
+        # SANG-TODO: Support flexible models and shard size.
+        scratch_so_files = [
+            # SANG-TODO H100
+            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+            # SANG-TODO A10
+            "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+        ]
+        for shared_object_file in scratch_so_files:
+            subprocess.check_call([
+                "cp",
+                "-f",
+                f"{temp_dir_path}/scratchllm/{shared_object_file}",
+                os.path.join(ROOT_DIR, "vllm"),
+            ])
+# Anyscale end
+
+
 ext_modules = []
 
 if _is_cuda() or _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
+    build_scratch()
 
 if not _is_neuron():
     ext_modules.append(CMakeExtension(name="vllm._C"))
@@ -424,6 +426,7 @@ if not _is_neuron():
 package_data = {
     "vllm": ["py.typed", "model_executor/layers/fused_moe/configs/*.json"]
 }
+package_data["vllm"].append("scratch*.so")
 
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []
