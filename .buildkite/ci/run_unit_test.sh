@@ -16,8 +16,8 @@ VLLM_TEST_ENABLE_ARTIFICIAL_PREEMPT=1 run_with_timeout $(( 60 * 10 )) pytest -v 
 
 # Entrypoints Test
 # RAY_OVERRIDE_JOB_RUNTIME_ENV=1 is required because these tests specify runtime env itself.
-RAY_OVERRIDE_JOB_RUNTIME_ENV=1 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m llm
-RAY_OVERRIDE_JOB_RUNTIME_ENV=1 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints -m openai
+RAY_OVERRIDE_JOB_RUNTIME_ENV=1 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints/llm
+RAY_OVERRIDE_JOB_RUNTIME_ENV=1 run_with_timeout $(( 60 * 20 )) pytest -v -s tests/entrypoints/openai
 # Lora Test
 # run_with_timeout $(( 60 * 240 )) pytest -v -s tests/lora --ignore=lora/test_long_context.py
 # Spec decode test

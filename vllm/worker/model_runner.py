@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 from vllm.anyscale import anyscale_envs
+
 try:
     from flashinfer import BatchDecodeWithPagedKVCacheWrapper
     from flashinfer.decode import CUDAGraphBatchDecodeWithPagedKVCacheWrapper
@@ -1078,6 +1079,16 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                                                      self.pin_memory)
         is_prompt = (seq_group_metadata_list[0].is_prompt
                      if seq_group_metadata_list else None)
+
+        # Anyscale start
+        # Temporary. will be removed.
+        if (anyscale_envs.ENABLE_JSON_MODE and self.is_driver_worker
+                and len(seq_group_metadata_list) > 0):
+            logit_processor = getattr(self.model, "logits_processor", None)
+            assert logit_processor is not None
+            logit_processor.prepare(seq_group_metadata_list)
+        # Anyscale ends
+
         return dataclasses.replace(model_input,
                                    sampling_metadata=sampling_metadata,
                                    is_prompt=is_prompt)
@@ -1128,15 +1139,6 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                     self.flashinfer_decode_wrapper
             model_input.attn_metadata.begin_forward()
 
-        # Anyscale start
-        if (anyscale_envs.ENABLE_JSON_MODE
-                and seq_group_metadata_list is not None):
-            # seq_group_metadata_list is None for non-driver.
-            logit_processor = getattr(self.model, "logits_processor", None)
-            assert logit_processor is not None
-            logit_processor.prepare(seq_group_metadata_list)
-        # Anyscale end
-
         # Currently cuda graph is only supported by the decode phase.
         assert model_input.attn_metadata is not None
         prefill_meta = model_input.attn_metadata.prefill_metadata
@@ -1159,15 +1161,14 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
 
         # Compute the logits.
         # Anyscale start
-        if (anyscale_envs.ENABLE_JSON_MODE
-                and seq_group_metadata_list is not None):
+        if anyscale_envs.ENABLE_JSON_MODE:
             # seq_group_metadata_list is None for non-driver.
             logits, json_mask_success = self.model.compute_logits(
                 hidden_states, model_input.sampling_metadata)
         else:
             json_mask_success = None
             logits = self.model.compute_logits(hidden_states,
-                                            model_input.sampling_metadata)
+                                               model_input.sampling_metadata)
         # Anyscale end
 
         # Only perform sampling in the driver worker.
@@ -1183,7 +1184,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         # Anyscale start
         if anyscale_envs.ENABLE_JSON_MODE:
             output = self._mark_output_failed_if_needed(
-                output, json_mask_success, sampling_metadata)
+                output, json_mask_success, model_input.sampling_metadata)
         # Anyscale end
 
         if self.return_hidden_states:
