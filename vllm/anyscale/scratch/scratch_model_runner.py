@@ -143,14 +143,17 @@ class ScratchModelRunner:
 
         # Lazily initialized.
         self.scratch: scratch_mod.ScratchAPI  # type: ignore
-        # We create a hf_model that has a subset of functionalities
+        # We create a model that has a subset of functionalities
         # that scratch doesn't support. I.e., norm, logit compute,
         # and sampling. NOTE: We should make sure the config is in sync.
-        self.hf_model: nn.Module
+        self.model: nn.Module
         self._scratch_session_manager: ScratchSessionManager
         self._verify_scratch_config()
 
     def _verify_scratch_config(self):
+        # TODO(sang): We will need better config validation than this.
+        # Ideally, we should choose a subset of config supported by
+        # scratch from config.py or arg_utils.py.
         assert self.is_driver_worker, ("TP > 1 not supported.")
         assert self.model_config.dtype == torch.half, (
             "Only half type is allowed.")
@@ -163,16 +166,16 @@ class ScratchModelRunner:
             "Vision model not supported")
         assert self.kv_cache_dtype == "auto", (
             "Currently, Scratch doesn't use kv cache.")
-        # SANG-TODO Support only llama 2 and 3.
         assert ("llama-2" in self.model_config.model.lower()
                 or "llama-3" in self.model_config.model.lower()), (
                     "Only Llama 2 7B or llama 3 8B is supported.")
         assert self.lora_manager is None, ("lora is not supported.")
         assert self.model_config.enforce_eager is True, (
             "cuda graph is not needed for Scratch.")
-        # SANG-TODO page size should be 32.
         assert self.cache_config.block_size == 32, (
             "Scratch only supports page size of 32.")
+        assert self.cache_config.enable_prefix_caching is False, (
+            "enable_prefix_caching is not supported for Scratch")
 
     def load_model(self) -> None:
         assert self.load_config.download_dir is None
@@ -194,7 +197,7 @@ class ScratchModelRunner:
                                        SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
-            self.hf_model = get_model(
+            self.model = get_model(
                 model_config=self.model_config,
                 device_config=self.device_config,
                 load_config=self.load_config,
@@ -287,8 +290,9 @@ class ScratchModelRunner:
                 parent_ids.append(parent_id)
                 if is_prefill:
                     input_tokens.extend(data.prompt_token_ids)
-                    query_lens.append(seq_data[parent_id].get_prompt_len())
-                    seq_lens.append(seq_data[parent_id].get_prompt_len())
+                    prompt_len = seq_data[parent_id].get_prompt_len()
+                    query_lens.append(prompt_len)
+                    seq_lens.append(prompt_len)
                 else:
                     input_tokens.append(data.get_last_token_id())
                     query_lens.append(1)
@@ -339,8 +343,8 @@ class ScratchModelRunner:
             assert len(prefill_groups) == 0
 
         batch_size = len(session_ids)
-        hidden_states = torch.zeros(len(input_tokens) *
-                                    self.model_config.get_hidden_size(),
+        hidden_size = self.model_config.get_hidden_size()
+        hidden_states = torch.zeros(len(input_tokens) * hidden_size,
                                     device="cuda",
                                     dtype=torch.half)
         input_tokens_tensor = torch.tensor(input_tokens,
@@ -351,12 +355,15 @@ class ScratchModelRunner:
         # so we should iterate one by one.
         cum_query_length = 0
         for i, session_id in enumerate(session_ids):
-            query_len = query_lens[i]
             # Find relevant tensor from 1D input token tensors.
+            query_len = query_lens[i]
             prefill_req_tensor = input_tokens_tensor[
                 cum_query_length:cum_query_length + query_len]
-            hidden_state = hidden_states[cum_query_length:cum_query_length +
-                                         query_len]
+            # Hidden state should multiply hidden_size because it is flattened.
+            hidden_state = hidden_states[cum_query_length *
+                                         hidden_size:(cum_query_length +
+                                                      query_len) * hidden_size]
+
             self.scratch.prefill(
                 session_id,
                 prefill_req_tensor.data_ptr(),
@@ -364,6 +371,7 @@ class ScratchModelRunner:
                 hidden_state.data_ptr(),
                 True,
             )
+            cum_query_length += query_len
 
         # Run decodes.
         if len(decode_groups) > 0:
@@ -382,9 +390,9 @@ class ScratchModelRunner:
         # Scratch doesn't apply rms norm in its output, so we should do it
         # ourselves. Residual is set to None because it is already added
         # from Scratch output.
-        hidden_states = self.hf_model.norm(hidden_states, None)
-        logits = self.hf_model.compute_logits(hidden_states, sampling_metadata)
-        output = self.hf_model.sample(
+        hidden_states = self.model.norm(hidden_states, None)
+        logits = self.model.compute_logits(hidden_states, sampling_metadata)
+        output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )

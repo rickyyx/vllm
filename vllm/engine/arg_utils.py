@@ -13,6 +13,8 @@ from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig,
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import FlexibleArgumentParser, str_to_int_tuple
 
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
+
 
 def nullable_str(val: str):
     if not val or val == "None":
@@ -789,6 +791,59 @@ class EngineArgs:
             decoding_config=decoding_config,
             observability_config=observability_config,
         )
+
+
+# Anyscale start
+if USE_SCRATCH:
+    OriginalEngineArgs = EngineArgs
+
+    # A list of config that's allowed for ScratchLLM.
+    @dataclass
+    class ScratchEngineArgs:
+        model: str
+        served_model_name: Optional[Union[List[str]]] = None
+        tokenizer: Optional[str] = None
+        skip_tokenizer_init: bool = False
+        tokenizer_mode: str = 'auto'
+        trust_remote_code: bool = False
+        download_dir: Optional[str] = None
+        load_format: str = 'auto'
+        dtype: str = 'auto'
+        seed: int = 0
+        max_model_len: Optional[int] = None
+        block_size: int = 32
+        use_v2_block_manager: bool = False
+        swap_space: int = 0  # GiB
+        gpu_memory_utilization: float = 0.90
+        max_num_batched_tokens: Optional[int] = None
+        max_num_seqs: int = 256
+        max_logprobs: int = 20  # Default value for OpenAI Chat Completions API
+        disable_log_stats: bool = False
+        tokenizer_pool_size: int = 0
+        tokenizer_pool_type: str = "ray"
+        tokenizer_pool_extra_config: Optional[dict] = None
+        num_gpu_blocks_override: Optional[int] = 1
+
+    class EngineArgsWithScratchValidation(OriginalEngineArgs):
+
+        def __post_init__(self):
+            super().__post_init__()
+            default_args = OriginalEngineArgs(self.model)
+            changed_args = set()
+            for field in dataclasses.fields(self):
+                key = field.name
+                default_value = getattr(default_args, key)
+                if default_value != getattr(self, key):
+                    changed_args.add(key)
+
+            for changed_arg in changed_args:
+                if not hasattr(ScratchEngineArgs, changed_arg):
+                    raise ValueError(
+                        f"{changed_arg} is not supported by ScratchLLM.")
+
+    EngineArgs = EngineArgsWithScratchValidation  # type: ignore
+
+# Anyscale end
 
 
 @dataclass

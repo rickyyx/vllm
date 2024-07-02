@@ -1065,6 +1065,8 @@ class Scheduler:
         blocks_to_swap_out: List[Tuple[int, int]],
         preemption_mode: Optional[PreemptionMode] = None,
     ) -> PreemptionMode:
+        # TODO(sang): This is a temporary hack. We should allow to
+        # disable preemption to master oss.
         assert USE_SCRATCH is False, (
             "Preemption is not supported for ScratchLLM now.")
         # If preemption mode is not specified, we determine the mode as follows:

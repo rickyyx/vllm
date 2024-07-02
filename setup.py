@@ -420,7 +420,7 @@ def build_scratch():
         print("Copy .so file to vllm folder.")
         # TODO(sang): Support flexible .so file names.
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
-        # SANG-TODO: Support flexible models and shard size.
+        # TODO(sang): Support A10 and H100 automatically.
         scratch_so_files = [
             # TODO(sang): H100
             # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",  # noqa

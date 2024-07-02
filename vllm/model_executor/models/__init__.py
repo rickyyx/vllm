@@ -138,7 +138,7 @@ _SCRATCH_MODELS = {
 }
 
 
-class ScratchModelRegistry(ModelRegistry):
+class ScratchModelRegistry:
     """Model registry that can load ScratchLLM models.
 
     The API is compatible to ModelRegistry.
@@ -147,7 +147,6 @@ class ScratchModelRegistry(ModelRegistry):
     @staticmethod
     def load_model_cls(model_arch: str) -> Optional[Type[nn.Module]]:
         return ModelRegistry._load_scratch_cls(model_arch)
-        super().load_model_cls(model_arch)
 
     @staticmethod
     def get_supported_archs() -> List[str]:
@@ -174,10 +173,11 @@ class ScratchModelRegistry(ModelRegistry):
         return False
 
 
-# Anyscale end
-
 if USE_SCRATCH:
+    OriginalModelRegistry = ModelRegistry
     ModelRegistry = ScratchModelRegistry
+
+# Anyscale end
 
 __all__ = [
     "ModelRegistry",

@@ -29,6 +29,7 @@ def test_models(
         max_tokens: int,  # not working
 ) -> None:
     # Pop out prompts that currently fail.
+    # TODO(sang, ricky): Fix it.
     example_prompts.pop(2)
     example_prompts.pop()
 
@@ -39,17 +40,16 @@ def test_models(
     vllm_model = vllm_runner(
         model,
         dtype=dtype,
-        enforce_eager=True,
         block_size=32,
-        max_num_seqs=1,
     )
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)
     del vllm_model
-    print(vllm_outputs)
 
     for i in range(len(example_prompts)):
         hf_output_ids, hf_output_str = hf_outputs[i]
         vllm_output_ids, vllm_output_str = vllm_outputs[i]
+        print("hf_output_str", hf_output_str)
+        print("vllm_output_str", vllm_output_str)
         assert (
             hf_output_str == vllm_output_str
         ), f"Test{i}:\nHF: {hf_output_str!r}\nvLLM: {vllm_output_str!r}"

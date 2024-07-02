@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# To clone the repo.
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+
 # install vllm
 pip install -U pip
 pip install --no-cache --no-build-isolation -U -e .
