@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     USE_V2: bool = False
     NUM_PROCESSOR_WORKERS: int = 8
     USE_SCRATCH: bool = False
+    USE_SCRATCH_SAMPLE: bool = False
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -43,7 +44,10 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     "NUM_PROCESSOR_WORKERS":
     lambda: int(os.getenv("ANYSCALE_VLLM_NUM_PROCESSOR_WORKERS", 8)),
     # If set, ScratchLLM is used.
-    "USE_SCRATCH": lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_SCRATCH_LLM", False)))
+    "USE_SCRATCH": lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_SCRATCH_LLM", False))),
+    # If set, use ScratchLLM's native sampler. It currently only supports greedy sampling without
+    # any logprob. It is just used for correctness checks.
+    "USE_SCRATCH_SAMPLE": lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_SCRATCH_SAMPLE", False))),
 }
 
 # end-env-vars-definition

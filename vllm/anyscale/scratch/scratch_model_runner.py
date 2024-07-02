@@ -35,16 +35,12 @@ from vllm.sequence import Logprob
 from vllm.model_executor import SamplingMetadata
 from vllm.utils import is_pin_memory_available
 from vllm.utils import LRUCache
+from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
 
 logger = init_logger(__name__)
 
-LLAMA_7B_VOCAB_SIZE = 32000
-
 from vllm.anyscale.scratch.constants import (
     SCRATCH_EXECUTABLE_PATH, SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX, SCRATCH_WEIGHTS_BUCKET_NAME)
-
-# SANG-TODO WORKS?
-MODEL_PARAMS_PATH = "/home/ray/default/weights"
 
 
 def import_scratch(path: Path):
@@ -58,12 +54,18 @@ def import_scratch(path: Path):
 
 
 class ScratchSession:
+    """An abstraction to store Scratch session."""
 
     def __init__(self, scratch_session_id: int):
         self.scratch_session_id = scratch_session_id
 
 
 class ScratchLRUCache(LRUCache[ScratchSession]):
+    """LRU cache to store scratch sessions.
+
+    It is a temporary hack to figure out the finished sessions.
+    It relies on vllm guarantees to complete running seq groups.
+    """
 
     def __init__(self, capacity: int, scratch_api):
         self._scratch_api = scratch_api
@@ -77,15 +79,16 @@ class ScratchLRUCache(LRUCache[ScratchSession]):
 class ScratchSessionManager:
     """A class that manages multile scratch sessions.
 
-    Stale sessions are currently automatically deleted. IT IS A HACK.
-    The current implementation is kind of a hack because vLLM model runner
-    cannot know which sequence groups are finished/preempted. We use LRUCache
-    to track the max_num_seqs * 2 session and clean up session that are least
-    recently used. It is working becasue vLLM scheduler prioritizes running
-    decode all the time. It may break when preemption of swapping happens.
-    Currently, we are disabling these features when ScratchLLM is used. This
-    can be solved once we pipeline the finished/preempted sequence group
-    information to model runner in a few weeks.
+    Stale sessions are currently automatically deleted. "IT IS A HACK".
+    vLLM model runner cannot know which sequence groups are finished/preempted.
+    We use LRUCache to track the max_num_seqs * 2 session and clean up session
+    that are least recently used. (Note this also means we can use up to 2X
+    GPU memory for kv cache than needed). It is working becasue vLLM scheduler
+    prioritizes running decode all the time. It may break when preemption of
+    swapping happens. Currently, we are disabling these features when
+    ScratchLLM is used. This can be solved once we pipeline the
+    finished/preempted sequence group information to model runner in a few
+    weeks.
     """
 
     def __init__(self, scratch_api, max_num_seqs: int):
@@ -123,6 +126,9 @@ class ScratchModelRunner:
         is_driver_worker: bool = False,
         vision_language_config: Optional[VisionLanguageConfig] = None,
     ):
+        assert USE_SCRATCH, (
+            "Use ANYSCALE_VLLM_USE_SCRATCH_LLM=1 to use ScratchLLM")
+
         self.model_config = model_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
@@ -264,12 +270,13 @@ class ScratchModelRunner:
     ) -> Optional[SamplerOutput]:
         # KV cache is unused.
         input_tokens: List[int] = []
-        parent_ids = []
-        session_ids = []
-        prefill_groups = []
-        decode_groups = []
-        query_lens = []
-        seq_lens = []
+        parent_ids: List[int] = []
+        session_ids: List[int] = []
+        prefill_groups: List[SequenceGroupMetadata] = []
+        decode_groups: List[SequenceGroupMetadata] = []
+        query_lens: List[int] = []
+        seq_lens: List[int] = []
+
         for seq_group_metadata in seq_group_metadata_list:
             request_id = seq_group_metadata.request_id
             session_ids.append(
@@ -289,8 +296,7 @@ class ScratchModelRunner:
                 parent_id = seq_id
                 parent_ids.append(parent_id)
                 if is_prefill:
-                    # TODO(sang): Hack. Remove it.
-                    input_tokens.append(data.prompt_token_ids)
+                    input_tokens.extend(data.prompt_token_ids)
                     query_lens.append(seq_data[parent_id].get_prompt_len())
                     seq_lens.append(seq_data[parent_id].get_prompt_len())
                 else:
@@ -302,28 +308,43 @@ class ScratchModelRunner:
                                                      seq_lens, query_lens,
                                                      self.device,
                                                      self.pin_memory)
-        return self._execute_and_vllm_sample(prefill_groups, decode_groups,
-                                            input_tokens, session_ids,
-                                            parent_ids, sampling_metadata)
-        # return self._execute_and_scratch_sample(
-        #     prefill_groups, decode_groups, input_tokens, session_ids, parent_ids)
+
+        if USE_SCRATCH_SAMPLE:
+            return self._execute_and_scratch_sample(
+                prefill_groups, decode_groups, input_tokens, session_ids, parent_ids, query_lens)
+        else:
+            return self._execute_and_vllm_sample(
+                prefill_groups, decode_groups, input_tokens, session_ids, query_lens, sampling_metadata)
 
     def _execute_and_vllm_sample(
             self,
             prefill_groups: List[SequenceGroupMetadata],
             decode_groups: List[SequenceGroupMetadata],
-            # It is 2D query if it is prefill, else decode.
             input_tokens: List[int],
             session_ids: List[int],
-            parent_ids: List[int],
-            sampling_metadata: SamplingMetadata):
+            query_lens: List[int],
+            sampling_metadata: SamplingMetadata,):
+        """Run scratchLLM kernels with vLLM logit processor + sampler.
+
+        Args:
+            prefill_groups: A list of sequence group metadata for prefill
+            decode_groups: A list of sequence group metadata for decode
+            input_tokens: (num_batched_tokens) input tokens.
+            session_ids: A list of session ids.
+            query_lens: (num_seqs). A length of input tokens per sequence.
+                Used to find the length of input queries from 1D
+                `input_tokens`.
+            sampling_metadata: SamplingMetadata used for sampling.
+
+        Returns:
+            SamplerOutput for a given batch of requests.
+        """
         if len(prefill_groups) > 0:
             assert len(decode_groups) == 0
         if len(decode_groups) > 0:
             assert len(prefill_groups) == 0
 
         batch_size = len(session_ids)
-        # TODO(ricky): This is not right when all_embeddings=True. 
         if len(prefill_groups) > 0:
             total_input_count = sum(
                 [len(ins) for ins in input_tokens])
@@ -338,25 +359,17 @@ class ScratchModelRunner:
                                         device="cuda",
                                         dtype=torch.half)
 
-        s = time.time()
         # Run prefills. Scratch currently doesn't support batch prefills, so we should
         # iterate one by one.
-        for i, (session_id, prefill_group) in enumerate(zip(session_ids, prefill_groups)):
+        for i, session_id in enumerate(session_ids):
             input_tokens_tensor = torch.tensor(input_tokens[i],
                                                device="cuda",
                                                dtype=torch.int)
-            # print(f"SANG-TODO {input_tokens_tensor=}")
-            assert input_tokens_tensor.is_contiguous()
-            # print(f"SANG-TODO {input_tokens_tensor.shape=}")
 
             len_prefix_before_this = sum(
                 len(ins) for ins in input_tokens[:i])
-            # print(f"SANG-TODO {len_prefix_before_this=}")
             hidden_states_start_index = len_prefix_before_this * self.model_config.get_hidden_size()
             hidden_states_end_index = (len_prefix_before_this + len(input_tokens[i])) * self.model_config.get_hidden_size()
-            # print(f"SANG-TODO {hidden_states_start_index=} {hidden_states_end_index=}")
-            # print(f"SANG-TODO {hidden_states.shape=}")
-            # print(f"SANG-TODO {hidden_states[hidden_states_start_index: hidden_states_end_index].shape=}")
             assert hidden_states[hidden_states_start_index: hidden_states_end_index].is_contiguous()
             self.scratch.prefill(
                 session_id,
@@ -381,53 +394,16 @@ class ScratchModelRunner:
                 hidden_states.data_ptr(),
             )
 
-        # print(
-        #     f"SANG-TODO forward takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=} is_prefill: {len(prefill_groups) > 0}"
-        # )
-        # print(hidden_states)
-        # print(f"SANG-TODO {hidden_states.shape=}")
-        # Post process Scratch embeddings.
-        # RICKY-QQ: 
-        # so for prefill, with 2D tensor below, we actually treating multiple prefills as a single batch, as we do not have the batch dimension in the tensor.
-        # but for decode, we treat each decode as a single batch, as we have the batch dimension in the tensor.
-        # is this expected? 
         hidden_states = hidden_states.view(-1,
                                            self.model_config.get_hidden_size())
-        # if len(prefill_groups) > 0:
-            # print(f"SANG-TODO before norm {hidden_states=}")
-            # print(f"SANG-TODO {hidden_states.shape=}")
         # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
         # Residual is set to None because it is already added from Scratch output.
         hidden_states = self.model.norm(hidden_states, None)
-        # if len(prefill_groups) > 0:
-        #     print(f"SANG-TODO norm weights: {self.model.norm.weight=}")
-        #     print(f"SANG-TODO {hidden_states.shape=}")
-        #     print(f"SANG-TODO after norm {hidden_states=}")
-        # print(f"{hidden_states.shape=}")
-
-        # SANG-TODO remove it. Hack. It will work once scrath returns embedding of all tokens correctly.
-        # if len(prefill_groups) > 0:
-        #     sampling_metadata.selected_token_indices = torch.tensor(
-        #         [len(ins) - 1 for ins in input_tokens], device="cuda", dtype=torch.int)
-        # else:
-        #     sampling_metadata.selected_token_indices = torch.tensor(
-        #         [1 for _ in range(batch_size)], device="cuda", dtype=torch.int)
-        
-        # print(f"{sampling_metadata.selected_token_indices=}")
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
         output = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        # if len(prefill_groups) > 0:
-        #     print(
-        #         f"SANG-TODO prefill takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-        #     )
-        # else:
-        #     print(
-        #         f"SANG-TODO decode takes {(time.time() - s)* 1000} ms. Batch size: {len(session_ids)=}"
-        #     )
-        # print(output)
         return output
 
     def _execute_and_scratch_sample(
@@ -436,22 +412,44 @@ class ScratchModelRunner:
             decode_groups: List[SequenceGroupMetadata],
             input_tokens: List[int],
             session_ids: List[int],
-            parent_ids: List[int]):
+            parent_ids: List[int],
+            query_lens: List[int],) -> SamplerOutput:
+        """Execute the Scratch kernels and its native sampler.
+        
+        Scratch sampler currently only supports greedy sampling. Logprobs
+        reported from Scratch is inaccurate.
+
+        Args:
+            prefill_groups: A list of sequence group metadata for prefill
+            decode_groups: A list of sequence group metadata for decode
+            input_tokens: (num_batched_tokens) input tokens.
+            session_ids: A list of session ids.
+            parent_ids: A list of sequence ids.
+            query_lens: (num_seqs). A length of input tokens per sequence.
+                Used to find the length of input queries from 1D
+                `input_tokens`.
+
+        Returns:
+            SamplerOutput for a given batch of requests.
+        """
         batch_size = len(session_ids)
         tokens_out = torch.zeros(batch_size, device="cuda", dtype=torch.int)
-        for i, (session_id, prefill_group) in enumerate(zip(session_ids, prefill_groups)):
-            input_tokens_tensor = torch.tensor(input_tokens[i],
-                                               device="cuda",
-                                               dtype=torch.int)
+        input_tokens_tensor = torch.tensor(input_tokens,
+                                            device="cuda",
+                                            dtype=torch.int)
+        cum_query_length = 0
+        for i, session_id in enumerate(session_ids):
+            query_len = query_lens[i]
+            # Find relevant tensor from 1D input token tensors.
+            prefill_token_tensor = input_tokens_tensor[
+                cum_query_length: cum_query_length + query_len]
             self.scratch.prefill_sampled(session_id,
-                                         input_tokens_tensor.data_ptr(),
-                                         input_tokens_tensor.shape[0],
+                                         prefill_token_tensor.data_ptr(),
+                                         prefill_token_tensor.shape[0],
                                          tokens_out[i].data_ptr())
+            cum_query_length += query_len
 
         if len(decode_groups) > 0:
-            input_tokens_tensor = torch.tensor(input_tokens,
-                                               device="cuda",
-                                               dtype=torch.int)
             session_ids_tensor = torch.tensor(session_ids,
                                               device="cuda",
                                               dtype=torch.int)
@@ -461,7 +459,6 @@ class ScratchModelRunner:
                 batch_size,
                 tokens_out.data_ptr(),
             )
-        # print(f"SANG-TODO token: {tokens_out}")
 
         result_tokens = tokens_out.tolist()
         outputs = []
@@ -472,20 +469,18 @@ class ScratchModelRunner:
                         SequenceOutput(
                             parent_id,
                             result_token,
-                            # This value is invalid.
+                            # NOTE: This value is invalid.
                             {result_token: Logprob(logprob=0.5)},
                         )
                     ],
                     prompt_logprobs=None,
                 )
             )
-        output = SamplerOutput(outputs=outputs)
-        # print(output)
-        return output
+        return SamplerOutput(outputs=outputs)
 
     @torch.inference_mode()
     def profile_run(self) -> None:
-        # TODO(sang): Run profile run.
+        # TODO(sang): Run it once Scratch uses vllm kv caches.
         return
 
     def remove_all_loras(self):
