@@ -2,10 +2,9 @@
 
 from pydantic import BaseModel
 
+from .common import assert_parser_with_string
 from vllm.anyscale.constrained_decoding.lmformatenforcer import (
     JsonSchemaParser, SequenceParser, StringParser, UnionParser)
-
-from .common import assert_parser_with_string
 
 
 def test_string_choice():

@@ -10,14 +10,15 @@ from pydantic import BaseModel
 
 from tests.anyscale.json_constrained_decoding.utils import (
     FaultyProcessorWithException)
-from vllm.anyscale.constrained_decoding.json_mode_manager import (
-    JSONModeManager)
-from vllm.anyscale.exceptions import RequestFailedError
 from vllm.engine.arg_utils import AsyncEngineArgs, EngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.llm_engine import LLMEngine
 from vllm.sequence import SamplingParams, SequenceData, SequenceGroupMetadata
 from vllm.transformers_utils.tokenizer import get_tokenizer
+
+from vllm.anyscale.constrained_decoding.json_mode_manager import (
+    JSONModeManager)
+from vllm.anyscale.exceptions import RequestFailedError
 
 MODEL_ID = "JackFram/llama-68m"
 VOCAB_SIZE = 32000

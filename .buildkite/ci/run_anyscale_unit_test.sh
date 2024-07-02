@@ -23,5 +23,12 @@ run_with_timeout $(( 20 * 60 )) pytest -vs tests/anyscale/test_sliding_window.py
 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/shared_memory
 
 # ScratchLLM
+echo "Run Scratch + vLLM sampling."
 ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/basic_correctness.py
+echo "Run Scratch + Scratch sampling."
 ANYSCALE_VLLM_USE_SCRATCH_LLM=1 ANYSCALE_VLLM_USE_SCRATCH_SAMPLE=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/basic_correctness.py
+ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_input_validation.py
+ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_prompt_logprob.py
+ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_compat.py
+
+

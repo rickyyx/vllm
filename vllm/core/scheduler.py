@@ -13,6 +13,7 @@ from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
+
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 logger = init_logger(__name__)

@@ -1,56 +1,47 @@
-from typing import List, Optional, Set, Hashable
-import time
 import importlib.util
 import sys
+from pathlib import Path
+from typing import Hashable, List, Optional, Set
 
+import boto3
 import torch
 import torch.nn as nn
-import boto3
 from tqdm import tqdm
-from pathlib import Path
 
-from vllm.config import (
-    DeviceConfig,
-    LoadConfig,
-    LoRAConfig,
-    ModelConfig,
-    ParallelConfig,
-    SchedulerConfig,
-    VisionLanguageConfig,
-    CacheConfig,
-)
-from pathlib import Path
+from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
+                         ModelConfig, ParallelConfig, SchedulerConfig,
+                         VisionLanguageConfig)
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
-from vllm.sequence import (
-    SamplerOutput,
-    SequenceGroupMetadata,
-    SequenceOutput,
-    CompletionSequenceGroupOutput,
-)
-from vllm.model_executor.model_loader import get_model
-from vllm.utils import CudaMemoryProfiler
-from vllm.sequence import Logprob
 from vllm.model_executor import SamplingMetadata
-from vllm.utils import is_pin_memory_available
-from vllm.utils import LRUCache
+from vllm.model_executor.model_loader import get_model
+from vllm.sequence import (CompletionSequenceGroupOutput, Logprob,
+                           SamplerOutput, SequenceGroupMetadata,
+                           SequenceOutput)
+from vllm.utils import CudaMemoryProfiler, LRUCache, is_pin_memory_available
+
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
+from vllm.anyscale.scratch.constants import (SCRATCH_EXECUTABLE_PATH,
+                                             SCRATCH_TMP_DIR,
+                                             SCRATCH_WEIGHTS_BUCKET_NAME,
+                                             SCRATCH_WEIGHTS_PREFIX)
 
 logger = init_logger(__name__)
-
-from vllm.anyscale.scratch.constants import (
-    SCRATCH_EXECUTABLE_PATH, SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX, SCRATCH_WEIGHTS_BUCKET_NAME)
 
 
 def import_scratch(path: Path):
     SCRATCH_MODULE_NAME = "scratch"
-    logger.info(f"Importing scratch module from {path}")
-    spec = importlib.util.spec_from_file_location(SCRATCH_MODULE_NAME, path.resolve())
+    logger.info("Importing scratch module from %s", path)
+    spec = importlib.util.spec_from_file_location(SCRATCH_MODULE_NAME,
+                                                  path.resolve())
     scratch = importlib.util.module_from_spec(spec)
     sys.modules[SCRATCH_MODULE_NAME] = scratch
     spec.loader.exec_module(scratch)
     return scratch
+
+
+scratch_mod = import_scratch(Path(SCRATCH_EXECUTABLE_PATH))
 
 
 class ScratchSession:
@@ -77,13 +68,13 @@ class ScratchLRUCache(LRUCache[ScratchSession]):
 
 
 class ScratchSessionManager:
-    """A class that manages multile scratch sessions.
+    """A class that manages multiple scratch sessions.
 
     Stale sessions are currently automatically deleted. "IT IS A HACK".
     vLLM model runner cannot know which sequence groups are finished/preempted.
     We use LRUCache to track the max_num_seqs * 2 session and clean up session
     that are least recently used. (Note this also means we can use up to 2X
-    GPU memory for kv cache than needed). It is working becasue vLLM scheduler
+    GPU memory for kv cache than needed). It is working because vLLM scheduler
     prioritizes running decode all the time. It may break when preemption of
     swapping happens. Currently, we are disabling these features when
     ScratchLLM is used. This can be solved once we pipeline the
@@ -151,11 +142,11 @@ class ScratchModelRunner:
         self.pin_memory = is_pin_memory_available()
 
         # Lazily initialized.
-        self.scratch: "ScratchAPI" # type: ignore
-        # Scratch only returns embedding. We need to multiply it to lm_head
-        # to get the final logits, and that happens in vLLM. In order to
-        # do that, we create a torch module with lm_head weights loaded.
-        self.model: nn.Module
+        self.scratch: scratch_mod.ScratchAPI  # type: ignore
+        # We create a hf_model that has a subset of functionalities
+        # that scratch doesn't support. I.e., norm, logit compute,
+        # and sampling. NOTE: We should make sure the config is in sync.
+        self.hf_model: nn.Module
         self._scratch_session_manager: ScratchSessionManager
         self._verify_scratch_config()
 
@@ -174,8 +165,8 @@ class ScratchModelRunner:
             "Currently, Scratch doesn't use kv cache.")
         # SANG-TODO Support only llama 2 and 3.
         assert ("llama-2" in self.model_config.model.lower()
-                    or "llama-3" in self.model_config.model.lower()), (
-            "Only Llama 2 7B or llama 3 8B is supported.")
+                or "llama-3" in self.model_config.model.lower()), (
+                    "Only Llama 2 7B or llama 3 8B is supported.")
         assert self.lora_manager is None, ("lora is not supported.")
         assert self.model_config.enforce_eager is True, (
             "cuda graph is not needed for Scratch.")
@@ -191,11 +182,10 @@ class ScratchModelRunner:
         weights_dir.mkdir(exist_ok=True)
         # TODO(sang): Need to obtain this programmatically.
         # download_dir = weights_dir / "ll27b-s1-cuda-f16-fullopt"
-        scratch_mod = import_scratch(Path(SCRATCH_EXECUTABLE_PATH))
         base_dir = str(weights_dir.resolve())
-        self.scratch = scratch_mod.ScratchAPI(base_dir) 
+        self.scratch = scratch_mod.ScratchAPI(base_dir)
         scratch_subdir = self.scratch.get_param_subdir()
-        download_dir = weights_dir / scratch_subdir 
+        download_dir = weights_dir / scratch_subdir
         download_dir.mkdir(exist_ok=True)
         download_dir_path = str(download_dir.absolute())
         self.load_config.download_dir = str(weights_dir.absolute())
@@ -204,7 +194,7 @@ class ScratchModelRunner:
                                        SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
-            self.model = get_model(
+            self.hf_model = get_model(
                 model_config=self.model_config,
                 device_config=self.device_config,
                 load_config=self.load_config,
@@ -253,8 +243,8 @@ class ScratchModelRunner:
         # weights are always the same.
         # NOTE: Threadpool doesn't really improve performance.
         # Maybe it is rate limited.
-        for file in tqdm(
-                files, desc=f"Downloading scratch weights to {target_dir}"):
+        for file in tqdm(files,
+                         desc=f"Downloading scratch weights to {target_dir}"):
             dest = Path(target_dir) / Path(file).name
             if not dest.exists():
                 s3_client.download_file(bucket, file, str(dest.absolute()))
@@ -310,20 +300,24 @@ class ScratchModelRunner:
                                                      self.pin_memory)
 
         if USE_SCRATCH_SAMPLE:
-            return self._execute_and_scratch_sample(
-                prefill_groups, decode_groups, input_tokens, session_ids, parent_ids, query_lens)
+            return self._execute_and_scratch_sample(prefill_groups,
+                                                    decode_groups,
+                                                    input_tokens, session_ids,
+                                                    parent_ids, query_lens)
         else:
-            return self._execute_and_vllm_sample(
-                prefill_groups, decode_groups, input_tokens, session_ids, query_lens, sampling_metadata)
+            return self._execute_and_vllm_sample(prefill_groups, decode_groups,
+                                                 input_tokens, session_ids,
+                                                 query_lens, sampling_metadata)
 
     def _execute_and_vllm_sample(
-            self,
-            prefill_groups: List[SequenceGroupMetadata],
-            decode_groups: List[SequenceGroupMetadata],
-            input_tokens: List[int],
-            session_ids: List[int],
-            query_lens: List[int],
-            sampling_metadata: SamplingMetadata,):
+        self,
+        prefill_groups: List[SequenceGroupMetadata],
+        decode_groups: List[SequenceGroupMetadata],
+        input_tokens: List[int],
+        session_ids: List[int],
+        query_lens: List[int],
+        sampling_metadata: SamplingMetadata,
+    ):
         """Run scratchLLM kernels with vLLM logit processor + sampler.
 
         Args:
@@ -345,45 +339,34 @@ class ScratchModelRunner:
             assert len(prefill_groups) == 0
 
         batch_size = len(session_ids)
-        if len(prefill_groups) > 0:
-            total_input_count = sum(
-                [len(ins) for ins in input_tokens])
-            hidden_states = torch.zeros(
-                total_input_count *
-                self.model_config.get_hidden_size(),
-                device="cuda",
-                dtype=torch.half)
-        else:
-            hidden_states = torch.zeros(self.model_config.get_hidden_size() *
-                                        batch_size,
-                                        device="cuda",
-                                        dtype=torch.half)
+        hidden_states = torch.zeros(len(input_tokens) *
+                                    self.model_config.get_hidden_size(),
+                                    device="cuda",
+                                    dtype=torch.half)
+        input_tokens_tensor = torch.tensor(input_tokens,
+                                           device="cuda",
+                                           dtype=torch.int)
 
-        # Run prefills. Scratch currently doesn't support batch prefills, so we should
-        # iterate one by one.
+        # Run prefills. Scratch currently doesn't support batch prefills,
+        # so we should iterate one by one.
+        cum_query_length = 0
         for i, session_id in enumerate(session_ids):
-            input_tokens_tensor = torch.tensor(input_tokens[i],
-                                               device="cuda",
-                                               dtype=torch.int)
-
-            len_prefix_before_this = sum(
-                len(ins) for ins in input_tokens[:i])
-            hidden_states_start_index = len_prefix_before_this * self.model_config.get_hidden_size()
-            hidden_states_end_index = (len_prefix_before_this + len(input_tokens[i])) * self.model_config.get_hidden_size()
-            assert hidden_states[hidden_states_start_index: hidden_states_end_index].is_contiguous()
+            query_len = query_lens[i]
+            # Find relevant tensor from 1D input token tensors.
+            prefill_req_tensor = input_tokens_tensor[
+                cum_query_length:cum_query_length + query_len]
+            hidden_state = hidden_states[cum_query_length:cum_query_length +
+                                         query_len]
             self.scratch.prefill(
                 session_id,
-                input_tokens_tensor.data_ptr(),
-                input_tokens_tensor.shape[0],
-                hidden_states[hidden_states_start_index: hidden_states_end_index].data_ptr(),
+                prefill_req_tensor.data_ptr(),
+                prefill_req_tensor.shape[0],
+                hidden_state.data_ptr(),
                 True,
             )
 
         # Run decodes.
         if len(decode_groups) > 0:
-            input_tokens_tensor = torch.tensor(input_tokens,
-                                               device="cuda",
-                                               dtype=torch.int)
             session_ids_tensor = torch.tensor(session_ids,
                                               device="cuda",
                                               dtype=torch.int)
@@ -396,24 +379,26 @@ class ScratchModelRunner:
 
         hidden_states = hidden_states.view(-1,
                                            self.model_config.get_hidden_size())
-        # Scratch doesn't apply rms norm in its output, so we should do it ourselves.
-        # Residual is set to None because it is already added from Scratch output.
-        hidden_states = self.model.norm(hidden_states, None)
-        logits = self.model.compute_logits(hidden_states, sampling_metadata)
-        output = self.model.sample(
+        # Scratch doesn't apply rms norm in its output, so we should do it
+        # ourselves. Residual is set to None because it is already added
+        # from Scratch output.
+        hidden_states = self.hf_model.norm(hidden_states, None)
+        logits = self.hf_model.compute_logits(hidden_states, sampling_metadata)
+        output = self.hf_model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
         return output
 
     def _execute_and_scratch_sample(
-            self,
-            prefill_groups: List[SequenceGroupMetadata],
-            decode_groups: List[SequenceGroupMetadata],
-            input_tokens: List[int],
-            session_ids: List[int],
-            parent_ids: List[int],
-            query_lens: List[int],) -> SamplerOutput:
+        self,
+        prefill_groups: List[SequenceGroupMetadata],
+        decode_groups: List[SequenceGroupMetadata],
+        input_tokens: List[int],
+        session_ids: List[int],
+        parent_ids: List[int],
+        query_lens: List[int],
+    ) -> SamplerOutput:
         """Execute the Scratch kernels and its native sampler.
         
         Scratch sampler currently only supports greedy sampling. Logprobs
@@ -435,17 +420,17 @@ class ScratchModelRunner:
         batch_size = len(session_ids)
         tokens_out = torch.zeros(batch_size, device="cuda", dtype=torch.int)
         input_tokens_tensor = torch.tensor(input_tokens,
-                                            device="cuda",
-                                            dtype=torch.int)
+                                           device="cuda",
+                                           dtype=torch.int)
         cum_query_length = 0
         for i, session_id in enumerate(session_ids):
             query_len = query_lens[i]
             # Find relevant tensor from 1D input token tensors.
-            prefill_token_tensor = input_tokens_tensor[
-                cum_query_length: cum_query_length + query_len]
+            prefill_req_tensor = input_tokens_tensor[
+                cum_query_length:cum_query_length + query_len]
             self.scratch.prefill_sampled(session_id,
-                                         prefill_token_tensor.data_ptr(),
-                                         prefill_token_tensor.shape[0],
+                                         prefill_req_tensor.data_ptr(),
+                                         prefill_req_tensor.shape[0],
                                          tokens_out[i].data_ptr())
             cum_query_length += query_len
 
@@ -474,8 +459,7 @@ class ScratchModelRunner:
                         )
                     ],
                     prompt_logprobs=None,
-                )
-            )
+                ))
         return SamplerOutput(outputs=outputs)
 
     @torch.inference_mode()

@@ -410,15 +410,20 @@ def build_scratch():
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = str(temp_dir)
         print("Build and install ScratchLLM.")
-        subprocess.check_call(["chmod", "700", ".buildkite/ci/build_scratch.sh",])
-        subprocess.check_call(["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
+        subprocess.check_call([
+            "chmod",
+            "700",
+            ".buildkite/ci/build_scratch.sh",
+        ])
+        subprocess.check_call(
+            ["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
         print("Copy .so file to vllm folder.")
         # TODO(sang): Support flexible .so file names.
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
         # SANG-TODO: Support flexible models and shard size.
         scratch_so_files = [
             # TODO(sang): H100
-            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",  # noqa
             # TODO(sang): A10
             "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
         ]
@@ -429,8 +434,9 @@ def build_scratch():
                 f"{temp_dir_path}/scratchllm/{shared_object_file}",
                 os.path.join(ROOT_DIR, "vllm"),
             ])
-# Anyscale end
 
+
+# Anyscale end
 
 ext_modules = []
 

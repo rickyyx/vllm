@@ -5,12 +5,13 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 
-from vllm.anyscale import anyscale_envs
-from vllm.anyscale.constrained_decoding.json_mode_manager import (
-    JSONModeManager)
 from vllm.distributed import tensor_model_parallel_gather
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import SequenceGroupMetadata
+
+from vllm.anyscale import anyscale_envs
+from vllm.anyscale.constrained_decoding.json_mode_manager import (
+    JSONModeManager)
 
 
 class LogitsProcessor(nn.Module):

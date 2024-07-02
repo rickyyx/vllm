@@ -67,6 +67,7 @@ skip = "./tests/prompts,./benchmarks/sonnet.txt,./tests/lora/data,./build"
 [tool.isort]
 use_parentheses = true
 skip_gitignore = true
+known_local_folder = ["vllm.anyscale"]
 
 [tool.pytest.ini_options]
 markers = [

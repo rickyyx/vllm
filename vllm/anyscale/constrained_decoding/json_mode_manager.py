@@ -12,6 +12,8 @@ import ray
 import torch
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
+from vllm.sequence import SequenceGroupMetadata
+
 from vllm.anyscale.constrained_decoding.fault_tolerance import FaultAwareDaemon
 from vllm.anyscale.constrained_decoding.logits_processor import (
     JSONLogitsProcessorInput, JSONLogitsProcessorInputV2,
@@ -20,7 +22,6 @@ from vllm.anyscale.shm.msgspec_shm import (RayEvent, SharedMemoryManager,
                                            SharedMemoryReadDataError,
                                            SharedMsgspecBufferWithEvent)
 from vllm.anyscale.shm.numpy import numpy_encode_hook, numpy_ext_hook
-from vllm.sequence import SequenceGroupMetadata
 
 MIN_ROWS_PER_JSON_LOGITS_PROCESSOR = int(
     os.getenv("ANYSCALE_VLLM_MIN_ROWS_PER_JSON_LOGITS_PROCESSOR", "1"))

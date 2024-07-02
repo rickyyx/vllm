@@ -18,10 +18,11 @@ from vllm.model_executor import set_random_seed
 from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
 from vllm.sequence import ExecuteModelRequest, PoolerOutput, SamplerOutput
 from vllm.worker.cache_engine import CacheEngine
-from vllm.anyscale.anyscale_envs import USE_SCRATCH
 from vllm.worker.embedding_model_runner import EmbeddingModelRunner
-from vllm.worker.worker_base import WorkerBase
 from vllm.worker.model_runner import ModelRunner
+from vllm.worker.worker_base import WorkerBase
+
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 
 class Worker(WorkerBase):
@@ -82,7 +83,8 @@ class Worker(WorkerBase):
         ModelRunnerClass = (EmbeddingModelRunner if
                             self.model_config.embedding_mode else ModelRunner)
         if USE_SCRATCH:
-            from vllm.anyscale.scratch.scratch_model_runner import ScratchModelRunner  # noqa
+            from vllm.anyscale.scratch.scratch_model_runner import (  # noqa
+                ScratchModelRunner)
             ModelRunnerClass = ScratchModelRunner
 
         self.model_runner = ModelRunnerClass(

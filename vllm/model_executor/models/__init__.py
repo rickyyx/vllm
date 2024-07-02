@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from vllm.logger import init_logger
 from vllm.utils import is_hip
+
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 logger = init_logger(__name__)
@@ -136,6 +137,7 @@ _SCRATCH_MODELS = {
     "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
 }
 
+
 class ScratchModelRegistry(ModelRegistry):
     """Model registry that can load ScratchLLM models.
 
@@ -170,11 +172,12 @@ class ScratchModelRegistry(ModelRegistry):
     @staticmethod
     def is_embedding_model(model_arch: str) -> bool:
         return False
+
+
 # Anyscale end
-    
+
 if USE_SCRATCH:
     ModelRegistry = ScratchModelRegistry
-
 
 __all__ = [
     "ModelRegistry",

@@ -8,7 +8,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from vllm.anyscale import anyscale_envs
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
@@ -27,6 +26,8 @@ from vllm.sampling_params import SamplingParams
 from vllm.sequence import SamplerOutput, SequenceData, SequenceGroupMetadata
 from vllm.utils import (CudaMemoryProfiler, get_kv_cache_torch_dtype, is_hip,
                         is_pin_memory_available, make_tensor_with_pad)
+
+from vllm.anyscale import anyscale_envs
 
 logger = init_logger(__name__)
 
