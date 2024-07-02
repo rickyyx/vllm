@@ -163,7 +163,7 @@ def test_logit_processor_manager_fault_tolerance(batch_and_actor_size):
                 buffer_inds_to_batch_inds,
             )
 
-            if valid_mask is not None and not torch.all(valid_mask):
+            if valid_mask is not None and sum(valid_mask) != len(valid_mask):
                 at_least_one_failure = True
             iteration_cnt += 1
 
@@ -180,9 +180,10 @@ async def test_json_mode_manager_raise_exception(monkeypatch):
         "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
         "tests.anyscale.json_constrained_decoding.utils"
         ".FaultyProcessorWithErrorsAllTheTime")
-    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "1")
     monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
     monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_USE_V2", "0")
 
     engine_args = AsyncEngineArgs(model=MODEL_ID)
     engine = AsyncLLMEngine.from_engine_args(engine_args)
@@ -228,10 +229,11 @@ async def test_json_mode_manager_raise_exception_failure_only(monkeypatch):
         "ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS",
         "tests.anyscale.json_constrained_decoding.utils"
         ".ProcessorFailFirstRank")
-    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "0")
+    monkeypatch.setenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", "1")
     monkeypatch.setenv("ANYSCALE_VLLM_DELAY_BETWEEN_ACTOR_RESTARTS_S", "0.0")
     monkeypatch.setenv("ANYSCALE_VLLM_MAX_RESTARTS", "0")
     monkeypatch.setenv("ANYSCALE_VLLM_NUM_PROCESSOR_WORKERS", "2")
+    monkeypatch.setenv("ANYSCALE_VLLM_USE_V2", "0")
 
     engine_args = AsyncEngineArgs(model=MODEL_ID)
     engine = AsyncLLMEngine.from_engine_args(engine_args)

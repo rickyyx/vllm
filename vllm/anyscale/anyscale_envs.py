@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 environment_variables: Dict[str, Callable[[], Any]] = {
     # -- Json Mode Manager config --
     "ENABLE_JSON_MODE":
-    lambda: bool(os.getenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", False)),
+    lambda: bool(int(os.getenv("ANYSCALE_VLLM_ENABLE_JSON_MODE", False))),
     # The class to use for the logit processor.
     # If str, it should be the importable qualified name of the class.
     # e.g. "vllm.logit_processor.JSONModeLogitsProcessor".
@@ -27,7 +27,8 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda: os.getenv("ANYSCALE_VLLM_LOGIT_PROCESSOR_CLS", None),
     # Whether to recreate the actor if it fails.
     "RECREATE_FAILED_ACTORS":
-    lambda: bool(os.getenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", False)),
+    lambda: bool(int(os.getenv("ANYSCALE_VLLM_RECREATE_FAILED_ACTORS", False))
+                 ),
     # The delay between actor restarts.
     "DELAY_BETWEEN_ACTOR_RESTARTS_S":
     lambda: float(
@@ -37,7 +38,7 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda: int(os.getenv("ANYSCALE_VLLM_MAX_RESTARTS", -1)),
     # Whether to use json mode v2.
     "USE_V2":
-    lambda: bool(os.getenv("ANYSCALE_VLLM_USE_V2", False)),
+    lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_V2", False))),
     # The number of json mode manager processor workers.
     "NUM_PROCESSOR_WORKERS":
     lambda: int(os.getenv("ANYSCALE_VLLM_NUM_PROCESSOR_WORKERS", 8)),

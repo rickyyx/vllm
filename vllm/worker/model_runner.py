@@ -14,13 +14,14 @@ from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
                          VisionLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict
-from vllm.distributed.communication_op import graph_capture
+from vllm.distributed.parallel_state import graph_capture
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.model_loader import get_model
+from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.sampling_params import SamplingParams
 from vllm.sequence import SamplerOutput, SequenceData, SequenceGroupMetadata
@@ -86,6 +87,7 @@ class ModelRunner:
         kv_cache_dtype: Optional[str] = "auto",
         is_driver_worker: bool = False,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        return_hidden_states: bool = False,
     ):
         self.model_config = model_config
         self.parallel_config = parallel_config
@@ -96,6 +98,7 @@ class ModelRunner:
         self.load_config = load_config
         self.is_driver_worker = is_driver_worker
         self.vision_language_config = vision_language_config
+        self.return_hidden_states = return_hidden_states
 
         self.device = self.device_config.device
         self.pin_memory = is_pin_memory_available()
@@ -116,15 +119,17 @@ class ModelRunner:
         self.graph_block_tables = np.zeros(
             (max(_BATCH_SIZES_TO_CAPTURE), self.get_max_block_per_batch()),
             dtype=np.int32)
+        num_attn_heads = self.model_config.get_num_attention_heads(
+            self.parallel_config)
         self.attn_backend = get_attn_backend(
-            self.model_config.get_num_attention_heads(self.parallel_config),
+            num_attn_heads,
             self.model_config.get_head_size(),
             self.model_config.get_num_kv_heads(self.parallel_config),
             self.model_config.get_sliding_window(),
             self.model_config.dtype,
             self.kv_cache_dtype,
             self.block_size,
-        )
+        ) if num_attn_heads else None
 
         # Create processor for multi-modal data
         if self.vision_language_config is not None:
@@ -228,6 +233,16 @@ class ModelRunner:
             path,
             pattern=pattern,
             max_size=max_size,
+        )
+
+    def save_tensorized_model(
+        self,
+        tensorizer_config: TensorizerConfig,
+    ) -> None:
+        from vllm.model_executor.model_loader.loader import TensorizerLoader
+        TensorizerLoader.save_model(
+            self.model,
+            tensorizer_config=tensorizer_config,
         )
 
     def get_max_block_per_batch(self) -> int:
@@ -735,7 +750,9 @@ class ModelRunner:
             self.set_active_loras(lora_requests, lora_mapping)
 
         # Anyscale start
-        if anyscale_envs.ENABLE_JSON_MODE:
+        if (anyscale_envs.ENABLE_JSON_MODE
+                and seq_group_metadata_list is not None):
+            # seq_group_metadata_list is None for non-driver.
             logit_processor = getattr(self.model, "logits_processor", None)
             assert logit_processor is not None
             logit_processor.prepare(seq_group_metadata_list)
@@ -760,10 +777,13 @@ class ModelRunner:
 
         # Compute the logits.
         # Anyscale start
-        if anyscale_envs.ENABLE_JSON_MODE:
-            logits, failed_indices = self.model.compute_logits(
+        if (anyscale_envs.ENABLE_JSON_MODE
+                and seq_group_metadata_list is not None):
+            # seq_group_metadata_list is None for non-driver.
+            logits, json_mask_success = self.model.compute_logits(
                 hidden_states, sampling_metadata)
         else:
+            json_mask_success = None
             logits = self.model.compute_logits(hidden_states,
                                                sampling_metadata)
         # Anyscale end
@@ -773,22 +793,43 @@ class ModelRunner:
             return None
 
         # Sample the next token.
-        output = self.model.sample(
+        output: SamplerOutput = self.model.sample(
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
 
         # Anyscale start
         if anyscale_envs.ENABLE_JSON_MODE:
-            output = self._mark_output_failed_if_needed(output, failed_indices)
+            output = self._mark_output_failed_if_needed(
+                output, json_mask_success, sampling_metadata)
         # Anyscale end
+
+        if self.return_hidden_states:
+            # we only need to pass hidden states of most recent token
+            assert seq_group_metadata_list is not None
+            if seq_group_metadata_list[0].is_prompt:
+                hidden_states = hidden_states.index_select(
+                    0, sampling_metadata.selected_token_indices)
+            output.hidden_states = hidden_states
 
         return output
 
     # Anyscale start
     def _mark_output_failed_if_needed(
             self, sampler_output: Optional[SamplerOutput],
-            failed_indices: Optional[List[int]]) -> Optional[SamplerOutput]:
+            json_mask_success: Optional[List[bool]],
+            sampling_metadata: SamplingMetadata) -> Optional[SamplerOutput]:
+
+        # Find failed sequence groups.
+        failed_indices = None
+        if json_mask_success is not None:
+            failed_indices = []
+            for seq_idx, seq_group in enumerate(sampling_metadata.seq_groups):
+                sample_indices = seq_group.sample_indices
+                if not all(json_mask_success[sample_idx]
+                           for sample_idx in sample_indices):
+                    failed_indices.append(seq_idx)
+
         if sampler_output is None or failed_indices is None:
             return sampler_output
 
@@ -807,8 +848,8 @@ class ModelRunner:
         # that will have unique loras, an therefore the max amount of memory
         # consumption create dummy lora request copies from the lora request
         # passed in, which contains a lora from the lora warmup path.
-        dummy_lora_requests = []
-        dummy_lora_requests_per_seq = []
+        dummy_lora_requests: List[LoRARequest] = []
+        dummy_lora_requests_per_seq: List[LoRARequest] = []
         if self.lora_config:
             assert self.lora_manager is not None
             with self.lora_manager.dummy_lora_cache():
@@ -893,6 +934,11 @@ class ModelRunner:
         if not self.lora_manager:
             raise RuntimeError("LoRA is not enabled.")
         return self.lora_manager.remove_lora(lora_id)
+
+    def pin_lora(self, lora_id: int) -> bool:
+        if not self.lora_manager:
+            raise RuntimeError("LoRA is not enabled.")
+        return self.lora_manager.pin_lora(lora_id)
 
     def list_loras(self) -> Set[int]:
         if not self.lora_manager:

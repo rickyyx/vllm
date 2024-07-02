@@ -154,6 +154,8 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
         # Lazily initialized.
         self._json_mode_manager: Optional[JSONModeManager] = None
 
+        self._copy_stream: Optional[torch.cuda.Stream] = None
+
     def initialize(self, tokenizer: str) -> None:
         """Initialize the stateful logit processors.
 
@@ -174,6 +176,8 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
             use_v2=anyscale_envs.USE_V2,
             json_processor_num_workers=anyscale_envs.NUM_PROCESSOR_WORKERS,
         )
+
+        self._copy_stream = torch.cuda.Stream()
 
     def prepare(self,
                 seq_gruop_metadata_list: List[SequenceGroupMetadata]) -> None:
@@ -197,7 +201,7 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
     def _apply_json_logits_processor(
         self,
         logits: torch.Tensor,
-    ) -> Optional[torch.Tensor]:
+    ) -> Optional[List[bool]]:
         """Apply the JSON processor mask to logits in-place.
 
         `prepare` has to be called before this API used. After this API
@@ -208,21 +212,22 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
                 This tensor will be modified in-place.
 
         Returns:
-            A mask tensor indicating which tokens are valid
+            A list of bools indicating which sequences finished successfully.
         """
-        assert self._json_mode_manager is not None, (
-            ".initialize should have been called already, "
-            "Did you forget it?")
+        assert (self._json_mode_manager is not None or self._copy_stream
+                is not None), (".initialize should have been called already, "
+                               "Did you forget it?")
         # `prepare` has to be called before forward is called.
         assert self._buffer_inds_to_batch_inds is not None, (
             ".prepare(..) should have been called, Did you forget it?")
 
-        json_bias, json_mask_success = (
-            self._json_mode_manager.get_json_logits_bias(
-                logits, self._buffer_inds_to_batch_inds))
+        with torch.cuda.stream(self._copy_stream):
+            json_bias, json_mask_success = (
+                self._json_mode_manager.get_json_logits_bias(  # type: ignore
+                    logits, self._buffer_inds_to_batch_inds))
+        torch.cuda.current_stream().wait_stream(self._copy_stream)
 
         logits.add_(json_bias)
-        # Reset the state.
         self._buffer_inds_to_batch_inds = None
 
         return json_mask_success
@@ -247,18 +252,13 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
             embedding_bias,
         )
 
+        # Non-driver worker can return None for logits.
+        if logits is None:
+            return logits, None
+
         json_mask_success = self._apply_json_logits_processor(logits)
 
-        # Find failed sequence groups.
-        failed_seq_group_indices = None
-        if json_mask_success is not None:
-            failed_seq_group_indices = []
-            for i, seq_group in enumerate(sampling_metadata.seq_groups):
-                sample_indices = seq_group.sample_indices
-                if not json_mask_success[sample_indices].all():
-                    failed_seq_group_indices.append(i)
-
-        return logits, failed_seq_group_indices
+        return logits, json_mask_success
 
 
 if anyscale_envs.ENABLE_JSON_MODE:

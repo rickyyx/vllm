@@ -100,6 +100,8 @@ class UsageInfo(OpenAIBaseModel):
 class ResponseFormat(OpenAIBaseModel):
     # type must be "json_object" or "text"
     type: Literal["text", "json_object"]
+    # "schema" is a reserved field by pydantic-v2.
+    schema_: Optional[str] = Field(default=None, alias="schema")
 
 
 class StreamOptions(OpenAIBaseModel):
@@ -272,7 +274,8 @@ class ChatCompletionRequest(OpenAIBaseModel):
             include_stop_str_in_output=self.include_stop_str_in_output,
             length_penalty=self.length_penalty,
             logits_processors=logits_processors,
-        )
+            response_format=self.response_format.model_dump(
+                by_alias=True) if self.response_format is not None else None)
 
     @model_validator(mode='before')
     @classmethod
@@ -458,7 +461,8 @@ class CompletionRequest(OpenAIBaseModel):
             length_penalty=self.length_penalty,
             logits_processors=logits_processors,
             truncate_prompt_tokens=self.truncate_prompt_tokens,
-        )
+            response_format=self.response_format.model_dump(
+                by_alias=True) if self.response_format is not None else None)
 
     @model_validator(mode="before")
     @classmethod
@@ -672,6 +676,17 @@ class BatchRequestInput(OpenAIBaseModel):
     body: Union[ChatCompletionRequest, ]
 
 
+class BatchResponseData(OpenAIBaseModel):
+    # HTTP status code of the response.
+    status_code: int = 200
+
+    # An unique identifier for the API request.
+    request_id: str
+
+    # The body of the response.
+    body: Union[ChatCompletionResponse, ]
+
+
 class BatchRequestOutput(OpenAIBaseModel):
     """
     The per-line object of the batch output and error files
@@ -683,7 +698,7 @@ class BatchRequestOutput(OpenAIBaseModel):
     # inputs.
     custom_id: str
 
-    response: Optional[ChatCompletionResponse]
+    response: Optional[BatchResponseData]
 
     # For requests that failed with a non-HTTP error, this will contain more
     # information on the cause of the failure.
