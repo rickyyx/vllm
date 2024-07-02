@@ -17,14 +17,10 @@ from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.sequence import ExecuteModelRequest, PoolerOutput, SamplerOutput
 from vllm.worker.cache_engine import CacheEngine
-from vllm.scratch_env import USE_SCRATCH
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
 from vllm.worker.embedding_model_runner import EmbeddingModelRunner
 from vllm.worker.worker_base import WorkerBase
-
-if USE_SCRATCH:
-    from vllm.worker.scratch_model_runner import ScratchModelRunner as ModelRunner
-else:
-    from vllm.worker.model_runner import ModelRunner
+from vllm.worker.model_runner import ModelRunner
 
 
 class Worker(WorkerBase):
@@ -76,6 +72,10 @@ class Worker(WorkerBase):
 
         ModelRunnerClass = (EmbeddingModelRunner if
                             self.model_config.embedding_mode else ModelRunner)
+        if USE_SCRATCH:
+            from vllm.anyscale.scratch.scratch_model_runner import ScratchModelRunner  # noqa
+            ModelRunnerClass = ScratchModelRunner
+
         self.model_runner = ModelRunnerClass(
             model_config,
             parallel_config,
@@ -371,6 +371,8 @@ def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
 
 def raise_if_cache_size_invalid(num_gpu_blocks, block_size,
                                 max_model_len) -> None:
+    # TODO(sang): This is hack until scratchLLM is supported by
+    # scratch.
     if USE_SCRATCH:
         return
     if num_gpu_blocks <= 0:

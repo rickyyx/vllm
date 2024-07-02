@@ -26,11 +26,11 @@ sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 6AF7F09730B3F0A4
 sudo apt update
 sudo apt install -y cmake
 
-chmod 700 .buildkite/ci/install_scratch_dependencies.sh
-bash .buildkite/ci/install_scratch_dependencies.sh
+# Build dependencies required for ScratchLLM.
+chmod 700 .buildkite/ci/install_scratch_dependencies.sh && bash .buildkite/ci/install_scratch_dependencies.sh
 
 echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
-# Build scratch together.
+# NOTE(sang): Scratch .so is automatically included.
 BUILD_BAZEL=1 python setup.py bdist_wheel
 
 VLLM_WHEEL=$(basename $(ls dist/*.whl))

@@ -278,7 +278,6 @@ class LlamaModel(nn.Module):
         attn_metadata: AttentionMetadata,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        print(f"SANG-TODO {input_ids}")
         if inputs_embeds is not None:
             hidden_states = inputs_embeds
         else:
@@ -293,11 +292,7 @@ class LlamaModel(nn.Module):
                 attn_metadata,
                 residual,
             )
-        print(f"SANG-TODO before norm + residual {hidden_states + residual.to(torch.float32)=}")
-        print(f"SANG-TODO before norm {hidden_states.shape=}")
         hidden_states, _ = self.norm(hidden_states, residual)
-        print(f"SANG-TODO after norm {hidden_states=}")
-        print(f"SANG-TODO after norm {hidden_states.shape=}")
         return hidden_states
 
 

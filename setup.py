@@ -1,3 +1,6 @@
+"""NOTE: This file is modified to include ScratchLLM .so to vllm wheels.
+"""
+
 import importlib.util
 import io
 import logging
@@ -38,8 +41,6 @@ assert sys.platform.startswith(
     "linux"), "vLLM only supports Linux platform (including WSL)."
 
 MAIN_CUDA_VERSION = "12.1"
-
-# BUILD_SCRATCH = os.getenv("ANYSCALE_USE_SCRATCH_LLM", None)
 
 
 def is_sccache_available() -> bool:
@@ -396,9 +397,9 @@ def build_scratch():
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
         # SANG-TODO: Support flexible models and shard size.
         scratch_so_files = [
-            # SANG-TODO H100
+            # TODO(sang): H100
             # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-            # SANG-TODO A10
+            # TODO(sang): A10
             "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
         ]
         for shared_object_file in scratch_so_files:
@@ -415,7 +416,9 @@ ext_modules = []
 
 if _is_cuda() or _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
+    # Anyscale start
     build_scratch()
+    # Anyscale end
 
 if not _is_neuron():
     ext_modules.append(CMakeExtension(name="vllm._C"))
@@ -426,7 +429,9 @@ if not _is_neuron():
 package_data = {
     "vllm": ["py.typed", "model_executor/layers/fused_moe/configs/*.json"]
 }
+# Anyscale start
 package_data["vllm"].append("scratch*.so")
+# Anyscale end
 
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []

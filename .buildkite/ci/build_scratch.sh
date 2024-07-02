@@ -17,6 +17,8 @@ rm -rf ${SCRATCH_DIR}
 git clone git@github.com:anyscale/scratchllm.git ${SCRATCH_DIR}
 pushd ${SCRATCH_DIR}
 
+# TODO(sang): It is currently required to run tests on A10.
+# TODO(sang): A10
 git checkout a10-deployment
 
 echo "Build glog"
@@ -33,8 +35,8 @@ chmod 700 setup_pybind.sh
 bash setup_pybind.sh
 
 # TODO(sang): Support custom flags.
-# SANG-TODO H100
+# TODO(sang): H100
 # make m=ll38b h=cuda t=f16 b=fullopt s=4 scratch_runner
-# SANG-TODO A10
+# TODO(sang): A10
 make m=ll38b h=cuda t=f16 b=fullopt s=1 scratch_runner
 popd

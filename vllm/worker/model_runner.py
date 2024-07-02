@@ -727,7 +727,6 @@ class ModelRunner:
         seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
         kv_caches: List[torch.Tensor],
     ) -> Optional[SamplerOutput]:
-        s = time.time()
         (input_tokens, input_positions, attn_metadata, sampling_metadata,
          lora_requests, lora_mapping, multi_modal_kwargs
          ) = self.prepare_input_tensors(seq_group_metadata_list)
@@ -778,10 +777,6 @@ class ModelRunner:
             logits=logits,
             sampling_metadata=sampling_metadata,
         )
-        if prefill_meta is None:
-            print(f"SANG-TODO decode takes {(time.time() -s)* 1000} ms")
-        if decode_meta is None:
-            print(f"SANG-TODO prefill takes {(time.time() -s)* 1000} ms")
 
         # Anyscale start
         if anyscale_envs.ENABLE_JSON_MODE:

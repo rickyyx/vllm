@@ -15,21 +15,21 @@ types-setuptools
 
 # testing
 pytest
-# tensorizer>=2.9.0
+tensorizer>=2.9.0
 pytest-forked
 pytest-asyncio
 pytest-rerunfailures
 pytest-shard
 
 # testing utils
-# awscli
+awscli
 einops # required for MPT
 httpx
 peft
 requests
 ray
-# peft
-# awscli
+peft
+awscli
 
 # Benchmarking
 aiohttp

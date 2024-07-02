@@ -93,6 +93,7 @@ def _initialize_model(model_config: ModelConfig, load_config: LoadConfig,
     """Initialize a model with the given configurations."""
     model_class = get_model_architecture(model_config)[0]
     quant_config = _get_quantization_config(model_config, load_config)
+
     return model_class(config=model_config.hf_config,
                        cache_config=cache_config,
                        quant_config=quant_config,
@@ -794,6 +795,7 @@ def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:
 
     if load_config.load_format == LoadFormat.SHARDED_STATE:
         return ShardedStateLoader(load_config)
+
     if load_config.load_format == LoadFormat.BITSANDBYTES:
         return BitsAndBytesModelLoader(load_config)
 

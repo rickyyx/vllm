@@ -40,8 +40,8 @@ logger = init_logger(__name__)
 
 LLAMA_7B_VOCAB_SIZE = 32000
 
-from vllm.scratch_env import (SCRATCH_EXECUTABLE_PATH, SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX,
-                              SCRATCH_WEIGHTS_BUCKET_NAME)
+from vllm.anyscale.scratch.constants import (
+    SCRATCH_EXECUTABLE_PATH, SCRATCH_TMP_DIR, SCRATCH_WEIGHTS_PREFIX, SCRATCH_WEIGHTS_BUCKET_NAME)
 
 # SANG-TODO WORKS?
 MODEL_PARAMS_PATH = "/home/ray/default/weights"

@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     MAX_RESTARTS: int = -1
     USE_V2: bool = False
     NUM_PROCESSOR_WORKERS: int = 8
+    USE_SCRATCH: bool = False
 
 # The begin-* and end* here are used by the documentation generator
 # to extract the used env vars.
@@ -40,6 +41,8 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # The number of json mode manager processor workers.
     "NUM_PROCESSOR_WORKERS":
     lambda: int(os.getenv("ANYSCALE_VLLM_NUM_PROCESSOR_WORKERS", 8)),
+    # If set, ScratchLLM is used.
+    "USE_SCRATCH": lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_SCRATCH_LLM", False)))
 }
 
 # end-env-vars-definition

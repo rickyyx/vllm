@@ -7,7 +7,7 @@ from vllm.attention import get_attn_backend
 from vllm.config import CacheConfig, ModelConfig, ParallelConfig
 from vllm.logger import init_logger
 from vllm.utils import STR_DTYPE_TO_TORCH_DTYPE, is_pin_memory_available
-from vllm.scratch_env import USE_SCRATCH
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 logger = init_logger(__name__)
 
