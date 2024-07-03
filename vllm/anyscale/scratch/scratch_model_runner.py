@@ -1,7 +1,9 @@
+import dataclasses
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Hashable, List, Optional, Set
+from typing import (TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Set,
+                    Type, TypeVar)
 
 import boto3
 import torch
@@ -20,6 +22,10 @@ from vllm.sequence import (CompletionSequenceGroupOutput, Logprob,
                            SamplerOutput, SequenceGroupMetadata,
                            SequenceOutput)
 from vllm.utils import CudaMemoryProfiler, LRUCache, is_pin_memory_available
+from vllm.worker.model_runner_base import ModelRunnerBase, ModelRunnerInputBase
+
+if TYPE_CHECKING:
+    from vllm.attention.backends.abstract import AttentionBackend
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
 from vllm.anyscale.scratch.constants import (SCRATCH_EXECUTABLE_PATH,
@@ -102,7 +108,34 @@ class ScratchSessionManager:
         return session
 
 
-class ScratchModelRunner:
+TModelInputForScratch = TypeVar('TModelInputForScratch',
+                                bound="ModelInputForScratch")
+
+
+@dataclasses.dataclass(frozen=True)
+class ModelInputForScratch(ModelRunnerInputBase):
+    input_tokens: List[int]
+    parent_ids: List[int]
+    session_ids: List[int]
+    prefill_groups: List[SequenceGroupMetadata]
+    decode_groups: List[SequenceGroupMetadata]
+    query_lens: List[int]
+    seq_lens: List[int]
+    sampling_metadata: SamplingMetadata
+
+    def as_broadcastable_tensor_dict(self) -> Dict[str, Any]:
+        raise NotImplementedError("TP>1 is not supported")
+
+    @classmethod
+    def from_broadcasted_tensor_dict(
+        cls: Type[TModelInputForScratch],
+        tensor_dict: Dict[str, Any],
+        attn_backend: Optional["AttentionBackend"] = None,
+    ) -> TModelInputForScratch:
+        raise NotImplementedError("TP>1 is not supported")
+
+
+class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
 
     def __init__(
         self,
@@ -252,16 +285,10 @@ class ScratchModelRunner:
             if not dest.exists():
                 s3_client.download_file(bucket, file, str(dest.absolute()))
 
-    def set_block_size(self, block_size: int) -> None:
-        # It will be relevant later.
-        self.block_size = block_size
-
-    def execute_model(
+    def prepare_model_input(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
-        kv_caches: List[torch.Tensor],
-    ) -> Optional[SamplerOutput]:
-        # KV cache is unused.
+    ) -> ModelInputForScratch:
         input_tokens: List[int] = []
         parent_ids: List[int] = []
         session_ids: List[int] = []
@@ -302,16 +329,55 @@ class ScratchModelRunner:
                                                      seq_lens, query_lens,
                                                      self.device,
                                                      self.pin_memory)
+        return ModelInputForScratch(
+            input_tokens=input_tokens,
+            parent_ids=parent_ids,
+            session_ids=session_ids,
+            prefill_groups=prefill_groups,
+            decode_groups=decode_groups,
+            query_lens=query_lens,
+            seq_lens=seq_lens,
+            sampling_metadata=sampling_metadata,
+        )
+
+    def make_model_input_from_broadcasted_tensor_dict(
+        self,
+        tensor_dict: Dict[str, Any],
+    ) -> ModelInputForScratch:
+        raise NotImplementedError("TP > 1 is not supported.")
+
+    def set_block_size(self, block_size: int) -> None:
+        # It will be relevant later.
+        self.block_size = block_size
+
+    @torch.inference_mode()
+    def execute_model(
+        self,
+        model_input: ModelInputForScratch,
+        kv_caches: List[torch.Tensor],
+        num_steps: int = 1,
+    ) -> Optional[List[SamplerOutput]]:
+        # KV cache is unused.
+        assert num_steps == 1
 
         if USE_SCRATCH_SAMPLE:
-            return self._execute_and_scratch_sample(prefill_groups,
-                                                    decode_groups,
-                                                    input_tokens, session_ids,
-                                                    parent_ids, query_lens)
+            return [
+                self._execute_and_scratch_sample(model_input.prefill_groups,
+                                                 model_input.decode_groups,
+                                                 model_input.input_tokens,
+                                                 model_input.session_ids,
+                                                 model_input.parent_ids,
+                                                 model_input.query_lens)
+            ]
         else:
-            return self._execute_and_vllm_sample(prefill_groups, decode_groups,
-                                                 input_tokens, session_ids,
-                                                 query_lens, sampling_metadata)
+            return [
+                self._execute_and_vllm_sample(model_input.prefill_groups,
+                                              model_input.decode_groups,
+                                              model_input.input_tokens,
+                                              model_input.session_ids,
+                                              model_input.query_lens,
+                                              model_input.sampling_metadata)
+            ]
 
     def _execute_and_vllm_sample(
         self,
@@ -345,7 +411,7 @@ class ScratchModelRunner:
         batch_size = len(session_ids)
         hidden_size = self.model_config.get_hidden_size()
         hidden_states = torch.empty(len(input_tokens) * hidden_size,
-                                    ddevice=self.device,
+                                    device=self.device,
                                     dtype=torch.half)
         input_tokens_tensor = torch.tensor(input_tokens,
                                            device=self.device,

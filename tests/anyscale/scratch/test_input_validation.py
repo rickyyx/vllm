@@ -62,8 +62,5 @@ def test_models(
             enable_prefix_caching=True,
         )
     with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
-        vllm_model = vllm_runner(model,
-                                 dtype=dtype,
-                                 block_size=32,
-                                 kv_cache_dtype="fp8")
-    print(vllm_model)
+        vllm_model = vllm_runner(  # noqa
+            model, dtype=dtype, block_size=32, kv_cache_dtype="fp8")
