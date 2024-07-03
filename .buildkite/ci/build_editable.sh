@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-s3_credentials_folder=$(buildkite-agent meta-data get "s3-credentials-folder")
-
-aws s3 cp \
-    "${s3_credentials_folder}/id_rsa_github_llmbench_repo" \
-    ~/.ssh/id_rsa
-
-# Must restrict permissions; else, ssh-add raises a "permissions too open" error.
-chmod 400 ~/.ssh/id_rsa
-
-# To clone the repo.
 ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 # install vllm

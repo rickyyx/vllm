@@ -27,7 +27,6 @@ mv ${SCRATCH_REPO} "scratchllm"
 popd ${TMPDIR}
 
 pushd ${SCRATCH_DIR}
-ssh-keyscan github.com >> ~/.ssh/known_hosts
 echo "Build glog"
 git clone https://github.com/google/glog.git
 pushd glog
