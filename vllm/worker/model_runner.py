@@ -10,7 +10,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
 try:
     from flashinfer import BatchDecodeWithPagedKVCacheWrapper
     from flashinfer.decode import CUDAGraphBatchDecodeWithPagedKVCacheWrapper
