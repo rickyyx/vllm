@@ -18,8 +18,6 @@ echo "Install ScratchLLM to ${SCRATCH_DIR}"
 COMMIT="a45ae8dbf2f7f4db68ad6df5208c3327b8f4616c"
 SCRATCH_REPO="scratchllm-a10-deployment"
 URI="s3://anyscale-test/scratch-repo-archive/${COMMIT}/${SCRATCH_REPO}.zip"
-pip install awscli
-pip install cmake==3.22
 aws s3 cp ${URI} ${TMP_DIR}
 pushd ${TMP_DIR}
 echo "unzip ${SCRATCH_REPO}.zip"
