@@ -27,39 +27,41 @@ def test_models(
         dtype: str,
         max_tokens: int,  # not working
 ) -> None:
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError,
+                       match="Scratch only supports page size of 32"):
         vllm_model = vllm_runner(
             model,
             dtype=dtype,
             block_size=16,
         )
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="Only half type is allowed"):
         vllm_model = vllm_runner(
             model,
             dtype="bfloat16",
             block_size=32,
         )
-    with pytest.raises(AssertionError):
+    # The default dtype of llama 3 is bfloat16, so this fails.
+    with pytest.raises(AssertionError, match="Only half type is allowed"):
         vllm_model = vllm_runner(
             model,
             dtype="auto",
             block_size=32,
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         vllm_model = vllm_runner(
             model,
             dtype=dtype,
             block_size=32,
             enable_chunked_prefill=True,
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         vllm_model = vllm_runner(
             model,
             dtype=dtype,
             block_size=32,
             enable_prefix_caching=True,
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         vllm_model = vllm_runner(model,
                                  dtype=dtype,
                                  block_size=32,
