@@ -11,16 +11,23 @@ fi
 # Read the temporary directory from the command line argument
 TMP_DIR="$1"
 SCRATCH_DIR=${TMP_DIR}/scratchllm
+# Remove the directory if already exists.
+rm -rf ${SCRATCH_DIR}
 
 echo "Install ScratchLLM to ${SCRATCH_DIR}"
-rm -rf ${SCRATCH_DIR}
-git clone git@github.com:anyscale/scratchllm.git ${SCRATCH_DIR}
+COMMIT="a45ae8dbf2f7f4db68ad6df5208c3327b8f4616c"
+SCRATCH_REPO="scratchllm-a10-deployment"
+URI="s3://anyscale-test/scratch-repo-archive/${COMMIT}/${SCRATCH_REPO}.zip"
+aws s3 cp ${URI} ${TMP_DIR}
+pushd ${TMP_DIR}
+echo "unzip ${SCRATCH_REPO}.zip"
+unzip ${SCRATCH_REPO}.zip
+rm ${SCRATCH_REPO}.zip
+mv ${SCRATCH_REPO} "scratchllm"
+popd ${TMPDIR}
+
 pushd ${SCRATCH_DIR}
-
-# TODO(sang): It is currently required to run tests on A10.
-# TODO(sang): A10
-git checkout a10-deployment
-
+ssh-keyscan github.com >> ~/.ssh/known_hosts
 echo "Build glog"
 git clone https://github.com/google/glog.git
 pushd glog
