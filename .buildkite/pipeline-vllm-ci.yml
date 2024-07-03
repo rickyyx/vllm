@@ -24,6 +24,18 @@ steps:
         - exit_status: -1 # Agent lost/spot preemption
           limit: 2
 
+  - label: ":running: scratchLLM+vLLM integration unit test"
+    timeout: 7200
+    env:
+      COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_scratch_unit_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
   - label: ":running: oss distributed test"
     timeout: 3600
     env:
