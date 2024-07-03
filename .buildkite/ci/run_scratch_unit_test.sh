@@ -10,9 +10,9 @@ bash .buildkite/ci/bash_util/test_timeout.sh
 # ScratchLLM
 export ANYSCALE_VLLM_USE_SCRATCH_LLM=1
 echo "Run Scratch + vLLM sampling."
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/basic_correctness.py
+run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
 echo "Run Scratch + Scratch sampling."
-ANYSCALE_VLLM_USE_SCRATCH_SAMPLE=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/basic_correctness.py
+ANYSCALE_VLLM_USE_SCRATCH_SAMPLE=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_input_validation.py
 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_compat.py
 # Failing.

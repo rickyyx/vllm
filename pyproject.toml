@@ -7,6 +7,9 @@ requires = [
     "setuptools >= 49.4.0",
     "torch == 2.3.0",
     "wheel",
+    # Anyscale start
+    "awscli"
+    # Anyscale end
 ]
 build-backend = "setuptools.build_meta"
 
