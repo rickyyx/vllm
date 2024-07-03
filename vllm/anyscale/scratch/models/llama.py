@@ -20,6 +20,11 @@ from vllm.sequence import SamplerOutput
 
 
 class LlamaForCausalLM(nn.Module):
+    """This is a llama model specific to ScratchLLM. ScratchLLM has its own
+    weight loading code, but a subset of weights are supposed to be loaded
+    from HF (The final RMS norm and lm head for logit computation). This
+    module is used to load those weights.
+    """
 
     def __init__(
         self,
@@ -74,37 +79,14 @@ class LlamaForCausalLM(nn.Module):
         return next_tokens
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
-        stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            (".qkv_proj", ".q_proj", "q"),
-            (".qkv_proj", ".k_proj", "k"),
-            (".qkv_proj", ".v_proj", "v"),
-            (".gate_up_proj", ".gate_proj", 0),
-            (".gate_up_proj", ".up_proj", 1),
-        ]
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
-            for (param_name, weight_name, shard_id) in stacked_params_mapping:
-                if weight_name not in name:
-                    continue
-                name = name.replace(weight_name, param_name)
-                # It should only load lm_head related weights.
-                if name not in params_dict:
-                    continue
+            if name == "model.norm.weight":
+                name = "norm.weight"
 
-                param = params_dict[name]
-                weight_loader = param.weight_loader
-                weight_loader(param, loaded_weight, shard_id)
-                break
-            else:
-                # It should only load lm_head related weights.
-                # TODO(ricky):
-                if name == "model.norm.weight":
-                    name = "norm.weight"
-
-                if name not in params_dict:
-                    continue
-                param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader",
-                                        default_weight_loader)
-                weight_loader(param, loaded_weight)
+            if name not in params_dict:
+                continue
+            param = params_dict[name]
+            weight_loader = getattr(param, "weight_loader",
+                                    default_weight_loader)
+            weight_loader(param, loaded_weight)

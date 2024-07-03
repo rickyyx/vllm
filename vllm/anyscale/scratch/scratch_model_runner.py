@@ -344,11 +344,11 @@ class ScratchModelRunner:
 
         batch_size = len(session_ids)
         hidden_size = self.model_config.get_hidden_size()
-        hidden_states = torch.zeros(len(input_tokens) * hidden_size,
-                                    device="cuda",
+        hidden_states = torch.empty(len(input_tokens) * hidden_size,
+                                    ddevice=self.device,
                                     dtype=torch.half)
         input_tokens_tensor = torch.tensor(input_tokens,
-                                           device="cuda",
+                                           device=self.device,
                                            dtype=torch.int)
 
         # Run prefills. Scratch currently doesn't support batch prefills,
@@ -376,7 +376,7 @@ class ScratchModelRunner:
         # Run decodes.
         if len(decode_groups) > 0:
             session_ids_tensor = torch.tensor(session_ids,
-                                              device="cuda",
+                                              device=self.device,
                                               dtype=torch.int)
             self.scratch.decode(
                 session_ids_tensor.data_ptr(),
@@ -426,9 +426,11 @@ class ScratchModelRunner:
             SamplerOutput for a given batch of requests.
         """
         batch_size = len(session_ids)
-        tokens_out = torch.zeros(batch_size, device="cuda", dtype=torch.int)
+        tokens_out = torch.empty(batch_size,
+                                 device=self.device,
+                                 dtype=torch.int)
         input_tokens_tensor = torch.tensor(input_tokens,
-                                           device="cuda",
+                                           device=self.device,
                                            dtype=torch.int)
         cum_query_length = 0
         for i, session_id in enumerate(session_ids):
@@ -444,7 +446,7 @@ class ScratchModelRunner:
 
         if len(decode_groups) > 0:
             session_ids_tensor = torch.tensor(session_ids,
-                                              device="cuda",
+                                              device=self.device,
                                               dtype=torch.int)
             self.scratch.decode_sampled(
                 session_ids_tensor.data_ptr(),

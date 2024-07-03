@@ -18,6 +18,8 @@ echo "Install ScratchLLM to ${SCRATCH_DIR}"
 COMMIT="a45ae8dbf2f7f4db68ad6df5208c3327b8f4616c"
 SCRATCH_REPO="scratchllm-a10-deployment"
 URI="s3://anyscale-test/scratch-repo-archive/${COMMIT}/${SCRATCH_REPO}.zip"
+pip install awscli
+pip install cmake==3.22
 aws s3 cp ${URI} ${TMP_DIR}
 pushd ${TMP_DIR}
 echo "unzip ${SCRATCH_REPO}.zip"
@@ -28,8 +30,10 @@ popd ${TMPDIR}
 
 pushd ${SCRATCH_DIR}
 echo "Build glog"
-git clone https://github.com/google/glog.git
-pushd glog
+wget https://github.com/google/glog/archive/refs/tags/v0.7.1.tar.gz
+tar -xzvf v0.7.1.tar.gz
+rm v0.7.1.tar.gz
+pushd glog-0.7.1
 cmake -S . -B build -G "Unix Makefiles"
 cmake --build build
 sudo cmake --build build --target install
@@ -37,6 +41,7 @@ popd
 
 echo "Build scratchllm"
 # used for pybind.
+ls
 chmod 700 setup_pybind.sh
 bash setup_pybind.sh
 

@@ -69,21 +69,23 @@ class CacheEngine:
         device: str,
     ) -> List[torch.Tensor]:
         """Allocates KV cache on the specified device."""
+        # TODO(sang): It is a hack until paged attn is supported by scratch.
+        if USE_SCRATCH:
+            return []
+
         kv_cache_shape = self.attn_backend.get_kv_cache_shape(
             num_blocks, self.block_size, self.num_kv_heads, self.head_size)
         pin_memory = is_pin_memory_available() if device == "cpu" else False
         kv_cache: List[torch.Tensor] = []
-        # TODO(sang): It is a hack until paged attn is supported by scratch.
-        if not USE_SCRATCH:
-            for _ in range(self.num_layers):
-                # null block in CpuGpuBlockAllocator requires at least that
-                # block to be zeroed-out.
-                # We zero-out everything for simplicity.
-                kv_cache.append(
-                    torch.zeros(kv_cache_shape,
-                                dtype=self.dtype,
-                                pin_memory=pin_memory,
-                                device=device))
+        for _ in range(self.num_layers):
+            # null block in CpuGpuBlockAllocator requires at least that
+            # block to be zeroed-out.
+            # We zero-out everything for simplicity.
+            kv_cache.append(
+                torch.zeros(kv_cache_shape,
+                            dtype=self.dtype,
+                            pin_memory=pin_memory,
+                            device=device))
         return kv_cache
 
     def swap_in(self, src_to_dst: torch.Tensor) -> None:
