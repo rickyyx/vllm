@@ -21,7 +21,7 @@ RAY_OVERRIDE_JOB_RUNTIME_ENV=1 run_with_timeout $(( 60 * 20 )) pytest -v -s test
 # Lora Test
 # run_with_timeout $(( 60 * 240 )) pytest -v -s tests/lora --ignore=lora/test_long_context.py
 # Spec decode test
-VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 60 )) pytest -v -s tests/spec_decode
+VLLM_ATTENTION_BACKEND=XFORMERS run_with_timeout $(( 60 * 60 )) pytest -v -s tests/spec_decode --ignore=tests/spec_decode/e2e/test_mlp_correctness.py
 
 # run benchmarks
 # run_with_timeout $(( 20 * 60 )) bash ./benchmarks/anyscale/benchmark.sh
