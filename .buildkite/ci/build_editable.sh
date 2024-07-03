@@ -7,7 +7,7 @@ chmod 700 .buildkite/ci/install_scratch_dependencies.sh && bash .buildkite/ci/in
 
 # install vllm
 pip install -U pip
-pip install --no-cache --no-build-isolation -U -e .
+pip install --no-cache -e .
 
 # install anyguide
 ANYSCALE_BUCKET="s3://python-wheel-cache"
