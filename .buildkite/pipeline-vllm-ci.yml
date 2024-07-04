@@ -28,7 +28,7 @@ steps:
     timeout: 3600
     env:
       COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_distributed_test.sh"
-      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g6-12xlarge.yaml"
     commands:
       - bash .buildkite/job_submit_buildkite.sh
     retry:
