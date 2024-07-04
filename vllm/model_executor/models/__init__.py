@@ -6,6 +6,8 @@ import torch.nn as nn
 from vllm.logger import init_logger
 from vllm.utils import is_hip
 
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
+
 logger = init_logger(__name__)
 
 # Architecture -> (module, class).
@@ -131,6 +133,53 @@ class ModelRegistry:
     def is_embedding_model(model_arch: str) -> bool:
         return model_arch in _EMBEDDING_MODELS
 
+
+# Anyscale start
+_SCRATCH_MODELS = {
+    "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
+}
+
+
+class ScratchModelRegistry:
+    """Model registry that can load ScratchLLM models.
+
+    The API is compatible to ModelRegistry.
+    """
+
+    @staticmethod
+    def load_model_cls(model_arch: str) -> Optional[Type[nn.Module]]:
+        return ModelRegistry._load_scratch_cls(model_arch)
+
+    @staticmethod
+    def get_supported_archs() -> List[str]:
+        return list(_SCRATCH_MODELS.keys())
+
+    @staticmethod
+    def _load_scratch_cls(model_arch: str) -> Optional[Type[nn.Module]]:
+        assert USE_SCRATCH
+        if model_arch not in _SCRATCH_MODELS:
+            raise ValueError(f"{model_arch} is not supported for ScratchLLM.")
+
+        module_name, model_cls_name = _SCRATCH_MODELS[model_arch]
+        module = importlib.import_module(
+            f"vllm.anyscale.scratch.models.{module_name}")
+        return getattr(module, model_cls_name, None)
+
+    @staticmethod
+    def register_model(model_arch: str, model_cls: Type[nn.Module]):
+        raise NotImplementedError(
+            "Scratch model loader doesn't support register_model")
+
+    @staticmethod
+    def is_embedding_model(model_arch: str) -> bool:
+        return False
+
+
+if USE_SCRATCH:
+    OriginalModelRegistry = ModelRegistry
+    ModelRegistry = ScratchModelRegistry
+
+# Anyscale end
 
 __all__ = [
     "ModelRegistry",

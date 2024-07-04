@@ -5,15 +5,14 @@ import numpy as np
 import pytest
 import torch
 
+from .utils import (gen_all_json_schema_example_pairs, gen_all_json_schemas,
+                    print_stats, set_seed)
 from vllm.anyscale.constrained_decoding.grammar.cache import PrefixCache
 from vllm.anyscale.constrained_decoding.grammar.enforcer import GrammarEnforcer
 from vllm.anyscale.constrained_decoding.grammar.json_schema_to_grammar import (
     HEX_DIGIT, SPACE_END, SPACE_RULE, STRING)
 from vllm.anyscale.constrained_decoding.grammar.parser import Grammar
 from vllm.anyscale.constrained_decoding.grammar.trie import TokenizerTrie
-
-from .utils import (gen_all_json_schema_example_pairs, gen_all_json_schemas,
-                    print_stats, set_seed)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase

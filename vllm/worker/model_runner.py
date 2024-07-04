@@ -10,8 +10,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from vllm.anyscale import anyscale_envs
-
 try:
     from flashinfer import BatchDecodeWithPagedKVCacheWrapper
     from flashinfer.decode import CUDAGraphBatchDecodeWithPagedKVCacheWrapper
@@ -51,6 +49,8 @@ from vllm.worker.model_runner_base import (
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
+
+from vllm.anyscale import anyscale_envs
 
 logger = init_logger(__name__)
 

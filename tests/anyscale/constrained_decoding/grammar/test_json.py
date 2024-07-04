@@ -1,10 +1,9 @@
 import pytest
 
-from vllm.anyscale.constrained_decoding.grammar.json_utils import (
-    JSONGrammarError, json_schema_to_gbnf)
-
 from .utils import (gen_all_invalid_json_schemas,
                     gen_all_json_schema_grammar_pairs)
+from vllm.anyscale.constrained_decoding.grammar.json_utils import (
+    JSONGrammarError, json_schema_to_gbnf)
 
 
 class TestJSONGrammar:

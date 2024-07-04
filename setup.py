@@ -1,3 +1,6 @@
+"""NOTE: This file is modified to include ScratchLLM .so to vllm wheels.
+"""
+
 import importlib.util
 import io
 import logging
@@ -5,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from shutil import which
 from typing import Dict, List
 
@@ -409,10 +413,47 @@ def get_requirements() -> List[str]:
     return requirements
 
 
+# Anyscale start
+def build_scratch():
+    # Additionally build scratchLLM.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = str(temp_dir)
+        print("Build and install ScratchLLM.")
+        subprocess.check_call([
+            "chmod",
+            "700",
+            ".buildkite/ci/build_scratch.sh",
+        ])
+        subprocess.check_call(
+            ["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
+        print("Copy .so file to vllm folder.")
+        # TODO(sang): Support flexible .so file names.
+        subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
+        # TODO(sang): Support A10 and H100 automatically.
+        scratch_so_files = [
+            # TODO(sang): H100
+            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",  # noqa
+            # TODO(sang): A10
+            "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+        ]
+        for shared_object_file in scratch_so_files:
+            subprocess.check_call([
+                "cp",
+                "-f",
+                f"{temp_dir_path}/scratchllm/{shared_object_file}",
+                os.path.join(ROOT_DIR, "vllm"),
+            ])
+
+
+# Anyscale end
+
 ext_modules = []
 
 if _is_cuda() or _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
+    # Anyscale start
+    build_scratch()
+    # Anyscale end
 
 if _build_custom_ops():
     ext_modules.append(CMakeExtension(name="vllm._C"))
@@ -423,6 +464,10 @@ if _build_custom_ops():
 package_data = {
     "vllm": ["py.typed", "model_executor/layers/fused_moe/configs/*.json"]
 }
+# Anyscale start
+package_data["vllm"].append("scratch*.so")
+# Anyscale end
+
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []
     package_data["vllm"].append("*.so")

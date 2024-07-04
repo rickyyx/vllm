@@ -46,7 +46,12 @@ export MAX_JOBS=24
 export VLLM_INSTALL_PUNICA_KERNELS=1
 # Make sure release wheels are built for the following architectures
 export TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0+PTX"
-# Build
+
+# Build dependencies required for ScratchLLM.
+chmod 700 .buildkite/ci/install_scratch_dependencies.sh && bash .buildkite/ci/install_scratch_dependencies.sh
+
+echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
+# NOTE(sang): Scratch .so is automatically included.
 $python_executable setup.py bdist_wheel --dist-dir=dist
 
 

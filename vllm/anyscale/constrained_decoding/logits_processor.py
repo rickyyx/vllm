@@ -14,14 +14,14 @@ from anyguide import (Grammar, GrammarEnforcer, TokenizerTrie,
 from cachetools import LRUCache
 from transformers import PreTrainedTokenizerBase
 
-from vllm.anyscale.constrained_decoding.fault_tolerance import FaultAwareDaemon
-from vllm.anyscale.shm.msgspec_shm import SharedMsgspecBufferWithEvent
 from vllm.transformers_utils.tokenizer import get_tokenizer
 
 from .lmformatenforcer import JsonSchemaParser
 from .lmformatenforcer.integrations.transformers import (
     CharacterLevelParser, TokenEnforcer, TokenEnforcerTokenizerData,
     _build_regular_tokens_list)
+from vllm.anyscale.constrained_decoding.fault_tolerance import FaultAwareDaemon
+from vllm.anyscale.shm.msgspec_shm import SharedMsgspecBufferWithEvent
 
 logger = logging.getLogger(__name__)
 

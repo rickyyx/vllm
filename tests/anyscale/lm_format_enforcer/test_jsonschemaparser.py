@@ -7,12 +7,11 @@ from typing import Dict, List, Optional, Union
 import pytest
 from pydantic import BaseModel, Field
 
+from .common import CharacterNotAllowedException, assert_parser_with_string
 from vllm.anyscale.constrained_decoding.lmformatenforcer import (
     JsonSchemaParser)
 from vllm.anyscale.constrained_decoding.lmformatenforcer.consts import (
     BACKSLASH, BACKSLASH_ESCAPING_CHARACTERS)
-
-from .common import CharacterNotAllowedException, assert_parser_with_string
 
 
 def _test_json_schema_parsing_with_string(

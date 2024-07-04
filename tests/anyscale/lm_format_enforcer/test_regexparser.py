@@ -2,12 +2,11 @@
 
 from typing import Optional
 
+from .common import assert_parser_with_string
 from vllm.anyscale.constrained_decoding.lmformatenforcer import (
     CharacterLevelParserConfig, RegexParser)
 from vllm.anyscale.constrained_decoding.lmformatenforcer.consts import (
     COMPLETE_ALPHABET)
-
-from .common import assert_parser_with_string
 
 
 def _test_regex_parsing_with_string(string: str,

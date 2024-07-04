@@ -22,6 +22,8 @@ from vllm.worker.embedding_model_runner import EmbeddingModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.worker_base import LocalOrDistributedWorkerBase, WorkerInput
 
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
+
 
 class Worker(LocalOrDistributedWorkerBase):
     """A worker class that executes (a partition of) the model on a GPU.
@@ -84,6 +86,14 @@ class Worker(LocalOrDistributedWorkerBase):
             ModelRunnerClass = model_runner_cls
         elif self.model_config.embedding_mode:
             ModelRunnerClass = EmbeddingModelRunner
+
+        # Anyscale start
+        if USE_SCRATCH:
+            from vllm.anyscale.scratch.scratch_model_runner import (  # noqa
+                ScratchModelRunner)
+            ModelRunnerClass = ScratchModelRunner
+        # Anyscale end
+
         self.model_runner: GPUModelRunnerBase = ModelRunnerClass(
             model_config,
             parallel_config,
@@ -336,6 +346,10 @@ def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
 
 def raise_if_cache_size_invalid(num_gpu_blocks, block_size,
                                 max_model_len) -> None:
+    # TODO(sang): This is hack until scratchLLM is supported by
+    # scratch.
+    if USE_SCRATCH:
+        return
     if num_gpu_blocks <= 0:
         raise ValueError("No available memory for the cache blocks. "
                          "Try increasing `gpu_memory_utilization` when "
