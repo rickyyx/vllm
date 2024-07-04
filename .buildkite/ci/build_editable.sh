@@ -3,7 +3,7 @@ set -euxo pipefail
 
 # Required to build scratchLLM.
 ssh-keyscan github.com >> ~/.ssh/known_hosts
-chmod 700 .buildkite/ci/install_scratch_dependencies.sh && bash .buildkite/ci/install_scratch_dependencies.sh
+bash .buildkite/ci/install_scratch_dependencies.sh
 
 # install vllm
 pip install -U pip

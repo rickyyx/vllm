@@ -9,6 +9,8 @@ bash .buildkite/ci/bash_util/test_timeout.sh
 
 # ScratchLLM
 export ANYSCALE_VLLM_USE_SCRATCH_LLM=1
+# Temporary hack to find glog.
+export LD_PRELOAD="/usr/local/lib/libglog.so.2"
 echo "Run Scratch + vLLM sampling."
 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
 echo "Run Scratch + Scratch sampling."
