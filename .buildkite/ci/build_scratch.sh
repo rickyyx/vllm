@@ -24,7 +24,7 @@ echo "unzip ${SCRATCH_REPO}.zip"
 unzip "${SCRATCH_REPO}.zip"
 rm "${SCRATCH_REPO}.zip"
 mv "${SCRATCH_REPO}" "scratchllm"
-popd "${TMP_DIR}"
+popd
 
 pushd "${SCRATCH_DIR}"
 echo "Build glog"
