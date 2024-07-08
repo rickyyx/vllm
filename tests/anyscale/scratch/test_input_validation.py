@@ -5,6 +5,8 @@ Run `pytest tests/basic_correctness/test_scratch_correctness.py`.
 
 import pytest
 
+from vllm import AsyncEngineArgs
+
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 MODELS = [
@@ -64,3 +66,13 @@ def test_models(
     with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         vllm_model = vllm_runner(  # noqa
             model, dtype=dtype, block_size=32, kv_cache_dtype="fp8")
+
+
+def test_async_engine_args_working() -> None:
+    # Should not raise an exception.
+    AsyncEngineArgs("meta-llama/Meta-Llama-3-8B", engine_use_ray=True)
+    # Verify async config with invalid config is not working.
+    with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
+        AsyncEngineArgs("meta-llama/Meta-Llama-3-8B",
+                        engine_use_ray=True,
+                        enable_chunked_prefill=True)

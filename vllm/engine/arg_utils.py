@@ -786,6 +786,7 @@ if USE_SCRATCH:
         tokenizer_pool_type: str = "ray"
         tokenizer_pool_extra_config: Optional[dict] = None
         num_gpu_blocks_override: Optional[int] = 1
+        worker_use_ray: bool = False
 
     class EngineArgsWithScratchValidation(OriginalEngineArgs):
 
@@ -795,6 +796,11 @@ if USE_SCRATCH:
             changed_args = set()
             for field in dataclasses.fields(self):
                 key = field.name
+
+                # It is from async engine args. Skip it.
+                if not hasattr(default_args, key):
+                    continue
+
                 default_value = getattr(default_args, key)
                 if default_value != getattr(self, key):
                     changed_args.add(key)

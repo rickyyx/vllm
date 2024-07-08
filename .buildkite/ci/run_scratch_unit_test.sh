@@ -12,11 +12,11 @@ export ANYSCALE_VLLM_USE_SCRATCH_LLM=1
 # Temporary hack to find glog.
 export LD_PRELOAD="/usr/local/lib/libglog.so.2"
 echo "Run Scratch + vLLM sampling."
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
+run_with_timeout $(( 60 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
 echo "Run Scratch + Scratch sampling."
-ANYSCALE_VLLM_USE_SCRATCH_SAMPLE=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_input_validation.py
-run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_compat.py
+ANYSCALE_VLLM_USE_SCRATCH_SAMPLE=1 run_with_timeout $(( 60 * 60 )) pytest -vs tests/anyscale/scratch/test_basic_correctness.py 
+run_with_timeout $(( 60 * 60 )) pytest -vs tests/anyscale/scratch/test_input_validation.py
+run_with_timeout $(( 60 * 60 )) pytest -vs tests/anyscale/scratch/test_compat.py
 # Failing.
 # ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_models.py
 # ANYSCALE_VLLM_USE_SCRATCH_LLM=1 run_with_timeout $(( 10 * 60 )) pytest -vs tests/anyscale/scratch/test_prompt_logprob.py

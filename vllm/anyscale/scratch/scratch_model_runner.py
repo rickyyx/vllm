@@ -3,7 +3,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from typing import (TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Set,
-                    Type, TypeVar)
+                    Type, TypeVar, Union)
 
 import boto3
 import torch
@@ -11,15 +11,15 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
-                         ModelConfig, ParallelConfig, SchedulerConfig,
-                         VisionLanguageConfig)
+                         ModelConfig, MultiModalConfig, ParallelConfig,
+                         SchedulerConfig)
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.model_loader import get_model
-from vllm.sequence import (CompletionSequenceGroupOutput, Logprob,
-                           SamplerOutput, SequenceGroupMetadata,
+from vllm.sequence import (CompletionSequenceGroupOutput, IntermediateTensors,
+                           Logprob, SamplerOutput, SequenceGroupMetadata,
                            SequenceOutput)
 from vllm.utils import CudaMemoryProfiler, LRUCache, is_pin_memory_available
 from vllm.worker.model_runner_base import ModelRunnerBase, ModelRunnerInputBase
@@ -148,7 +148,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         lora_config: Optional[LoRAConfig],
         kv_cache_dtype: Optional[str] = "auto",
         is_driver_worker: bool = False,
-        vision_language_config: Optional[VisionLanguageConfig] = None,
+        multimodal_config: Optional[MultiModalConfig] = None,
+        return_hidden_states: bool = False,
     ):
         assert USE_SCRATCH, (
             "Use ANYSCALE_VLLM_USE_SCRATCH_LLM=1 to use ScratchLLM")
@@ -160,6 +161,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         self.load_config = load_config
         self.cache_config = cache_config
         self.is_driver_worker = is_driver_worker
+        self.multimodal_config = multimodal_config
 
         # model_config can be None in tests/samplers/test_sampler.py.
         # FIXME(woosuk): This is a hack to make the tests work. Refactor this.
@@ -170,7 +172,6 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         self.device = self.device_config.device
         self.lora_manager = None
         self.model_config.enforce_eager = True
-        self.vision_language_config = vision_language_config
         self.kv_cache_dtype = kv_cache_dtype
         self.pin_memory = is_pin_memory_available()
 
@@ -193,10 +194,6 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         assert self.scheduler_config.chunked_prefill_enabled is False, (
             "Chunked prefill not supported")
         assert self.sliding_window is None, ("Sliding window not supported")
-        assert self.vision_language_config is None, (
-            "Vision model not supported")
-        assert self.vision_language_config is None, (
-            "Vision model not supported")
         assert self.kv_cache_dtype == "auto", (
             "Currently, Scratch doesn't use kv cache.")
         assert ("llama-2" in self.model_config.model.lower()
@@ -235,7 +232,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
                 device_config=self.device_config,
                 load_config=self.load_config,
                 lora_config=self.lora_config,
-                vision_language_config=self.vision_language_config,
+                multimodal_config=self.multimodal_config,
                 parallel_config=self.parallel_config,
                 scheduler_config=self.scheduler_config,
                 cache_config=self.cache_config,
@@ -288,6 +285,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
     def prepare_model_input(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
+        virtual_engine: int = 0,
+        finished_requests_ids: Optional[List[str]] = None
     ) -> ModelInputForScratch:
         input_tokens: List[int] = []
         parent_ids: List[int] = []
@@ -355,8 +354,9 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         self,
         model_input: ModelInputForScratch,
         kv_caches: List[torch.Tensor],
+        intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
-    ) -> Optional[List[SamplerOutput]]:
+    ) -> Optional[Union[List[SamplerOutput], IntermediateTensors]]:
         # KV cache is unused.
         assert num_steps == 1
 

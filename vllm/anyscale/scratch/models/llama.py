@@ -48,6 +48,7 @@ class LlamaForCausalLM(nn.Module):
                 config.hidden_size,
                 org_num_embeddings=config.vocab_size,
             )
+
             self.lm_head.weight = embed_tokens.weight
 
         logit_scale = getattr(config, "logit_scale", 1.0)
@@ -66,7 +67,7 @@ class LlamaForCausalLM(nn.Module):
 
     def compute_logits(self, hidden_states: torch.Tensor,
                        sampling_metadata: SamplingMetadata) -> torch.Tensor:
-        logits = self.logits_processor(self.lm_head.weight, hidden_states,
+        logits = self.logits_processor(self.lm_head, hidden_states,
                                        sampling_metadata)
         return logits
 
