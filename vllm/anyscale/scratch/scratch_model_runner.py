@@ -116,9 +116,8 @@ TModelInputForScratch = TypeVar('TModelInputForScratch',
 class ModelInputForScratch(ModelRunnerInputBase):
     input_tokens: List[int]
     parent_ids: List[int]
-    session_ids: List[int]
-    prefill_groups: List[SequenceGroupMetadata]
-    decode_groups: List[SequenceGroupMetadata]
+    prefill_session_ids: List[int]
+    decode_session_ids: List[int]
     query_lens: List[int]
     seq_lens: List[int]
     sampling_metadata: SamplingMetadata
@@ -290,23 +289,20 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
     ) -> ModelInputForScratch:
         input_tokens: List[int] = []
         parent_ids: List[int] = []
-        session_ids: List[int] = []
-        prefill_groups: List[SequenceGroupMetadata] = []
-        decode_groups: List[SequenceGroupMetadata] = []
+        prefill_session_ids: List[int] = []
+        decode_session_ids: List[int] = []
         query_lens: List[int] = []
         seq_lens: List[int] = []
 
         for seq_group_metadata in seq_group_metadata_list:
             request_id = seq_group_metadata.request_id
-            session_ids.append(
-                self._scratch_session_manager.get_or_create_session(
-                    request_id).scratch_session_id)
-
+            session_id = self._scratch_session_manager.get_or_create_session(
+                request_id).scratch_session_id
             is_prefill = seq_group_metadata.is_prompt
             if is_prefill:
-                prefill_groups.append(seq_group_metadata)
+                prefill_session_ids.append(session_id)
             else:
-                decode_groups.append(seq_group_metadata)
+                decode_session_ids.append(session_id)
 
             seq_data = seq_group_metadata.seq_data
             for seq_id, data in seq_data.items():
@@ -331,9 +327,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         return ModelInputForScratch(
             input_tokens=input_tokens,
             parent_ids=parent_ids,
-            session_ids=session_ids,
-            prefill_groups=prefill_groups,
-            decode_groups=decode_groups,
+            prefill_session_ids=prefill_session_ids,
+            decode_session_ids=decode_session_ids,
             query_lens=query_lens,
             seq_lens=seq_lens,
             sampling_metadata=sampling_metadata,
@@ -362,37 +357,33 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
 
         if USE_SCRATCH_SAMPLE:
             return [
-                self._execute_and_scratch_sample(model_input.prefill_groups,
-                                                 model_input.decode_groups,
-                                                 model_input.input_tokens,
-                                                 model_input.session_ids,
-                                                 model_input.parent_ids,
-                                                 model_input.query_lens)
+                self._execute_and_scratch_sample(
+                    model_input.prefill_session_ids,
+                    model_input.decode_session_ids, model_input.input_tokens,
+                    model_input.parent_ids, model_input.query_lens)
             ]
         else:
             return [
-                self._execute_and_vllm_sample(model_input.prefill_groups,
-                                              model_input.decode_groups,
+                self._execute_and_vllm_sample(model_input.prefill_session_ids,
+                                              model_input.decode_session_ids,
                                               model_input.input_tokens,
-                                              model_input.session_ids,
                                               model_input.query_lens,
                                               model_input.sampling_metadata)
             ]
 
     def _execute_and_vllm_sample(
         self,
-        prefill_groups: List[SequenceGroupMetadata],
-        decode_groups: List[SequenceGroupMetadata],
+        prefill_session_ids: List[int],
+        decode_session_ids: List[int],
         input_tokens: List[int],
-        session_ids: List[int],
         query_lens: List[int],
         sampling_metadata: SamplingMetadata,
     ):
         """Run scratchLLM kernels with vLLM logit processor + sampler.
 
         Args:
-            prefill_groups: A list of sequence group metadata for prefill
-            decode_groups: A list of sequence group metadata for decode
+            prefill_session_ids: A list of session ids for prefill
+            decode_session_ids: A list of session ids for decode
             input_tokens: (num_batched_tokens) input tokens.
             session_ids: A list of session ids.
             query_lens: (num_seqs). A length of input tokens per sequence.
@@ -403,12 +394,12 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         Returns:
             SamplerOutput for a given batch of requests.
         """
-        if len(prefill_groups) > 0:
-            assert len(decode_groups) == 0
-        if len(decode_groups) > 0:
-            assert len(prefill_groups) == 0
+        if len(prefill_session_ids) > 0:
+            assert len(decode_session_ids) == 0
+        if len(decode_session_ids) > 0:
+            assert len(prefill_session_ids) == 0
 
-        batch_size = len(session_ids)
+        batch_size = len(prefill_session_ids) + len(decode_session_ids)
         hidden_size = self.model_config.get_hidden_size()
         hidden_states = torch.empty(len(input_tokens) * hidden_size,
                                     device=self.device,
@@ -420,7 +411,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         # Run prefills. Scratch currently doesn't support batch prefills,
         # so we should iterate one by one.
         cum_query_length = 0
-        for i, session_id in enumerate(session_ids):
+        for i, session_id in enumerate(prefill_session_ids):
             # Find relevant tensor from 1D input token tensors.
             query_len = query_lens[i]
             prefill_req_tensor = input_tokens_tensor[
@@ -440,8 +431,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
             cum_query_length += query_len
 
         # Run decodes.
-        if len(decode_groups) > 0:
-            session_ids_tensor = torch.tensor(session_ids,
+        if len(decode_session_ids) > 0:
+            session_ids_tensor = torch.tensor(decode_session_ids,
                                               device=self.device,
                                               dtype=torch.int)
             self.scratch.decode(
@@ -466,10 +457,9 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
 
     def _execute_and_scratch_sample(
         self,
-        prefill_groups: List[SequenceGroupMetadata],
-        decode_groups: List[SequenceGroupMetadata],
+        prefill_session_ids: List[int],
+        decode_session_ids: List[int],
         input_tokens: List[int],
-        session_ids: List[int],
         parent_ids: List[int],
         query_lens: List[int],
     ) -> SamplerOutput:
@@ -479,10 +469,9 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         reported from Scratch is inaccurate.
 
         Args:
-            prefill_groups: A list of sequence group metadata for prefill
-            decode_groups: A list of sequence group metadata for decode
+            prefill_session_ids: A list of session ids for prefill.
+            decode_session_ids: A list of session ids for decode.
             input_tokens: (num_batched_tokens) input tokens.
-            session_ids: A list of session ids.
             parent_ids: A list of sequence ids.
             query_lens: (num_seqs). A length of input tokens per sequence.
                 Used to find the length of input queries from 1D
@@ -491,7 +480,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         Returns:
             SamplerOutput for a given batch of requests.
         """
-        batch_size = len(session_ids)
+        batch_size = len(prefill_session_ids) + len(decode_session_ids)
         tokens_out = torch.empty(batch_size,
                                  device=self.device,
                                  dtype=torch.int)
@@ -499,7 +488,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
                                            device=self.device,
                                            dtype=torch.int)
         cum_query_length = 0
-        for i, session_id in enumerate(session_ids):
+        for i, session_id in enumerate(prefill_session_ids):
             query_len = query_lens[i]
             # Find relevant tensor from 1D input token tensors.
             prefill_req_tensor = input_tokens_tensor[
@@ -510,8 +499,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
                                          tokens_out[i].data_ptr())
             cum_query_length += query_len
 
-        if len(decode_groups) > 0:
-            session_ids_tensor = torch.tensor(session_ids,
+        if len(decode_session_ids) > 0:
+            session_ids_tensor = torch.tensor(decode_session_ids,
                                               device=self.device,
                                               dtype=torch.int)
             self.scratch.decode_sampled(
