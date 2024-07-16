@@ -1,9 +1,10 @@
-import re
 from typing import List, Optional, Tuple
 
 import pytest
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
+from vllm.model_executor.models.llava_next import (
+    get_llava_next_image_feature_size)
 from vllm.multimodal.utils import rescale_image_size
 from vllm.sequence import SampleLogprobs
 
@@ -36,7 +37,6 @@ def vllm_to_hf_output(vllm_output: Tuple[List[int], str,
     output_ids, output_str, out_logprobs = vllm_output
 
     tokenizer = AutoTokenizer.from_pretrained(model)
-    image_token_str = tokenizer.decode(IMAGE_TOKEN_ID)
     eos_token_id = tokenizer.eos_token_id
 
     hf_output_ids = [
@@ -44,9 +44,8 @@ def vllm_to_hf_output(vllm_output: Tuple[List[int], str,
         if token_id != IMAGE_TOKEN_ID or output_ids[idx - 1] != IMAGE_TOKEN_ID
     ]
 
-    hf_output_str = re.sub(fr"({image_token_str})+", "", output_str)
-    assert hf_output_str[0] == " "
-    hf_output_str = hf_output_str[1:]
+    assert output_str[0] == " "
+    hf_output_str = output_str[1:]
     if hf_output_ids[-1] == eos_token_id:
         hf_output_str = hf_output_str + tokenizer.decode(eos_token_id)
 
@@ -123,3 +122,13 @@ def test_models(hf_runner, vllm_runner, image_assets, model, size_factors,
             name_0="hf",
             name_1="vllm",
         )
+
+
+@pytest.mark.parametrize("height_and_width_and_result", [(1669, 2560, 2144),
+                                                         (183, 488, 776)])
+def test_image_feature_size(height_and_width_and_result):
+    height, width, result = height_and_width_and_result
+    config = AutoConfig.from_pretrained("llava-hf/llava-v1.6-mistral-7b-hf")
+    assert get_llava_next_image_feature_size(config,
+                                             input_height=height,
+                                             input_width=width) == result
