@@ -26,6 +26,15 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && python3 --version \
     && python3 -m pip --version
 
+# START: Anyscale only
+ENV PIP_USE_DEPRECATED=legacy-resolver
+RUN update-alternatives --set python3 /usr/bin/python3.9 \
+    && ln -sf /usr/bin/python3.9-config /usr/bin/python3-config \
+    && python3 -m pip --version \
+    && apt-get update -y \
+    && apt-get install -y unzip wget tar
+# END: Anyscale only
+
 RUN apt-get update -y \
     && apt-get install -y python3-pip git curl sudo
 
@@ -40,6 +49,7 @@ WORKDIR /workspace
 # install build and runtime dependencies
 COPY requirements-common.txt requirements-common.txt
 COPY requirements-cuda.txt requirements-cuda.txt
+COPY requirements-anyscale.txt requirements-anyscale.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r requirements-cuda.txt
 
@@ -78,6 +88,11 @@ COPY requirements-common.txt requirements-common.txt
 COPY requirements-cuda.txt requirements-cuda.txt
 COPY pyproject.toml pyproject.toml
 COPY vllm vllm
+# START: Anyscale only
+COPY .buildkite/ci/build_scratch.sh .buildkite/ci/build_scratch.sh
+COPY .buildkite/ci/install_scratch_dependencies.sh .buildkite/ci/install_scratch_dependencies.sh
+RUN bash .buildkite/ci/install_scratch_dependencies.sh
+# END: Anyscale only
 
 # max jobs used by Ninja to build extensions
 ARG max_jobs=2
@@ -100,7 +115,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && tar -xzf sccache.tar.gz \
         && sudo mv sccache-v0.8.1-x86_64-unknown-linux-musl/sccache /usr/bin/sccache \
         && rm -rf sccache.tar.gz sccache-v0.8.1-x86_64-unknown-linux-musl \
-        && export SCCACHE_BUCKET=vllm-build-sccache \
+        && export SCCACHE_BUCKET=anyscale-vllm-sccache \
         && export SCCACHE_REGION=us-west-2 \
         && export CMAKE_BUILD_TYPE=Release \
         && sccache --show-stats \
@@ -153,6 +168,25 @@ FROM nvidia/cuda:${CUDA_VERSION}-base-ubuntu22.04 AS vllm-base
 ARG CUDA_VERSION=12.4.1
 WORKDIR /vllm-workspace
 
+# START: Anyscale only
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_USE_DEPRECATED=legacy-resolver
+RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
+    && echo 'tzdata tzdata/Zones/America select Los_Angeles' | debconf-set-selections \
+    && apt-get update -y \
+    && apt-get install -y ccache software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update -y \    
+    && apt-get install -y python3.9 python3.9-dev python3.9-venv python3-pip \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1 \
+    && update-alternatives --set python3 /usr/bin/python3.9 \
+    && ln -sf /usr/bin/python3.9-config /usr/bin/python3-config \
+    && python3 -m pip --version
+
+RUN apt-get update -y \
+    && apt-get install -y libgflags-dev
+# END: Anyscale only
+
 RUN apt-get update -y \
     && apt-get install -y python3-pip git vim
 
@@ -172,7 +206,7 @@ RUN --mount=type=bind,from=mamba-builder,src=/usr/src/mamba,target=/usr/src/mamb
     python3 -m pip install /usr/src/mamba/*.whl --no-cache-dir
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.9/flashinfer-0.0.9+cu121torch2.3-cp310-cp310-linux_x86_64.whl
+    python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.9/flashinfer-0.0.9+cu121torch2.3-cp39-cp39-linux_x86_64.whl
 #################### vLLM installation IMAGE ####################
 
 
@@ -186,6 +220,14 @@ ADD . /vllm-workspace/
 # install development dependencies (for testing)
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r requirements-dev.txt
+
+# START: Anyscale-only 
+COPY .buildkite/ci/hf_login.py .buildkite/ci/hf_login.py
+COPY .buildkite/ci/install_anyguide.sh .buildkite/ci/install_anyguide.sh
+RUN --mount=type=cache,target=/root/.cache/pip \
+    AVIARY_ENV_AWS_SECRET_NAME=huggingface_token python3 .buildkite/ci/hf_login.py \
+    && VLLM_INSTALL_PUNICA_KERNELS=1 bash .buildkite/ci/install_anyguide.sh
+# END: Anyscale-only
 
 # doc requires source code
 # we hide them inside `test_docs/` , so that this source code

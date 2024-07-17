@@ -1,0 +1,16 @@
+steps:
+  - label: Anyscale Proprietary Unit Tests
+    working_dir: "/vllm-workspace"
+    commands:
+    - bash .buildkite/ci/run_anyscale_unit_test.sh
+
+  - label: Anyscale ScratchLLM + vLLM integration unit test
+    working_dir: "/vllm-workspace"
+    commands:
+    - bash .buildkite/ci/run_scratch_unit_test.sh
+
+  - label: Anyscale Distributed Test
+    working_dir: "/vllm-workspace"
+    num_gpus: 4
+    commands:
+    - bash .buildkite/ci/run_anyscale_distributed_test.sh

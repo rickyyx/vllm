@@ -1,0 +1,129 @@
+{% set docker_image = "830883877497.dkr.ecr.us-west-2.amazonaws.com/anyscale/vllm:$BUILDKITE_COMMIT" %}
+{% set default_working_dir = "/vllm-workspace/tests" %}
+{% set hf_home = "/root/.cache/huggingface" %}
+
+steps:
+  - label: ":docker: build image"
+    key: image-build
+    agents:
+      queue: vllm-cpu
+    commands:
+      - "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 830883877497.dkr.ecr.us-west-2.amazonaws.com"
+      - "docker build --build-arg max_jobs=16 --build-arg buildkite_commit=$BUILDKITE_COMMIT --build-arg USE_SCCACHE=1 --build-arg PYTHON_VERSION=3.9 --tag {{ docker_image }} --target test --progress plain ."
+      - "docker push {{ docker_image }}"
+    env:
+      DOCKER_BUILDKIT: "1"
+    retry:
+      automatic:
+        - exit_status: -1  # Agent was lost
+          limit: 5
+        - exit_status: -10  # Agent was lost
+          limit: 5
+  - wait
+
+  {% for step in steps %}
+  {% if step.num_nodes >= 2 %}
+  - label: "{{ step.label }}"
+    agents:
+      queue: vllm-gpu-4
+    commands:
+      - ./.buildkite/run-multi-node-test.sh {{ (step.working_dir or default_working_dir) | safe  }} {{ step.num_nodes }} {{ step.num_gpus }} {{ docker_image }} {% for command in step.commands %}"{{ (command | join(" && ")) | safe }}" {% endfor %}
+  {% endif %}
+  {% endfor %}
+
+  - group: "OSS tests"
+    steps:
+    {% for step in steps %}
+    {% if not step.anyscale and step.gpu != "a100" and step.num_nodes < 2 and step.fast_check_only != true %}
+    - label: "{{ step.label }}"
+      agents:
+        {% if step.num_gpus == 2 or step.num_gpus == 4 %}
+        queue: vllm-gpu-4
+        {% else %}
+        queue: vllm-gpu-1
+        {% endif %}
+      soft_fail: {{ step.soft_fail or false }}
+      {% if step.parallelism %}
+      parallelism: {{ step.parallelism }}
+      {% endif %}
+      retry:
+        automatic:
+          - exit_status: -1  # Agent was lost
+            limit: 5
+          - exit_status: -10  # Agent was lost
+            limit: 5
+      plugins:
+        - docker#v5.2.0:
+            image: {{ docker_image }}
+            always-pull: true
+            propagate-environment: true
+            {% if not step.no_gpu %}
+            gpus: all
+            {% endif %}
+            {% if step.label == "Benchmarks" %}
+            mount-buildkite-agent: true
+            {% endif %}
+            command: ["bash", "-c", "cd {{ (step.working_dir or default_working_dir) | safe  }} && {{ step.command  or (step.commands | join(' && ')) | safe }}"]
+            environment:
+              - VLLM_USAGE_SOURCE=ci-test
+              - HF_HOME={{ hf_home }}
+              - HF_TOKEN
+            volumes:
+              - /dev/shm:/dev/shm
+              - {{ hf_home }}:{{ hf_home }}
+    {% endif %}
+    {% endfor %}
+
+  - group: "Anyscale tests"
+    steps:
+    {% for step in steps %}
+    {% if step.anyscale %}
+    - label: "{{ step.label }}"
+      agents:
+        {% if step.num_gpus == 2 or step.num_gpus == 4 %}
+        queue: vllm-gpu-4
+        {% else %}
+        queue: vllm-gpu-1
+        {% endif %}
+      soft_fail: {{ step.soft_fail or false }}
+      {% if step.parallelism %}
+      parallelism: {{ step.parallelism }}
+      {% endif %}
+      retry:
+        automatic:
+          - exit_status: -1  # Agent was lost
+            limit: 5
+          - exit_status: -10  # Agent was lost
+            limit: 5
+      plugins:
+        - docker#v5.2.0:
+            image: {{ docker_image }}
+            always-pull: true
+            propagate-environment: true
+            {% if not step.no_gpu %}
+            gpus: all
+            {% endif %}
+            {% if step.label == "Benchmarks" %}
+            mount-buildkite-agent: true
+            {% endif %}
+            command: ["bash", "-c", "cd {{ (step.working_dir or default_working_dir) | safe  }} && {{ step.command  or (step.commands | join(' && ')) | safe }}"]
+            environment:
+              - VLLM_USAGE_SOURCE=ci-test
+              - HF_HOME={{ hf_home }}
+              - HF_TOKEN
+            volumes:
+              - /dev/shm:/dev/shm
+              - {{ hf_home }}:{{ hf_home }}
+      {% endif %}
+      {% endfor %}
+
+  - label: ":python: Build Anyscale wheel"
+    depends_on: ~
+    agents:
+      queue: vllm-cpu
+    plugins:
+      - docker#v5.2.0:
+          image: anyscale/ray:2.8.0-py39-cu121
+          always-pull: true
+          propagate-environment: true
+          command: ["bash", ".buildkite/ci/build_wheel.sh", "3.9", "12.1", $BUILDKITE_BRANCH, $BUILDKITE_COMMIT]

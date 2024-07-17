@@ -24,17 +24,19 @@ sudo apt install kitware-archive-keyring
 sudo rm /etc/apt/trusted.gpg.d/kitware.gpg
 sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 6AF7F09730B3F0A4
 sudo apt update
-sudo apt install -y cmake
+sudo apt install -y cmake curl
 
 # Do not compile with debug symbol to reduce wheel size
 export CMAKE_BUILD_TYPE="Release"
 
 python_executable=python$1
 cuda_home=/usr/local/cuda-$2
+GIT_BRANCH=$3
+GIT_COMMIT=$4
 
 # Update paths
 PATH=${cuda_home}/bin:$PATH
-LD_LIBRARY_PATH=${cuda_home}/lib64:$LD_LIBRARY_PATH
+LD_LIBRARY_PATH=${cuda_home}/lib64:${LD_LIBRARY_PATH:-}
 
 # Install requirements
 $python_executable -m pip install wheel packaging
@@ -47,12 +49,26 @@ export VLLM_INSTALL_PUNICA_KERNELS=1
 # Make sure release wheels are built for the following architectures
 export TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0+PTX"
 
+# Allow docker user to read/write all files in the directory
+CURRENT_USER=$(whoami)
+sudo chown -R $CURRENT_USER:users .
+
 # Build dependencies required for ScratchLLM.
-chmod 700 .buildkite/ci/install_scratch_dependencies.sh && bash .buildkite/ci/install_scratch_dependencies.sh
+bash .buildkite/ci/install_scratch_dependencies.sh
 
 echo "~~~ :python: Building wheel for ${VLLM_PROJECT}@${GIT_COMMIT}"
+
+# Install and use sccache for faster compile time
+echo "Installing sccache..."
+curl -L -o sccache.tar.gz https://github.com/mozilla/sccache/releases/download/v0.8.1/sccache-v0.8.1-x86_64-unknown-linux-musl.tar.gz
+tar -xzf sccache.tar.gz
+sudo mv sccache-v0.8.1-x86_64-unknown-linux-musl/sccache /usr/bin/sccache
+rm -rf sccache.tar.gz sccache-v0.8.1-x86_64-unknown-linux-musl
+export SCCACHE_BUCKET=anyscale-vllm-sccache
+export SCCACHE_REGION=us-west-2
+
 # NOTE(sang): Scratch .so is automatically included.
-$python_executable setup.py bdist_wheel --dist-dir=dist
+sccache --show-stats && $python_executable setup.py bdist_wheel --dist-dir=dist && sccache --show-stats
 
 
 VLLM_WHEEL=$(basename $(ls dist/*.whl))

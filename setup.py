@@ -1,6 +1,7 @@
 """NOTE: This file is modified to include ScratchLLM .so to vllm wheels.
 """
 
+import glob
 import importlib.util
 import io
 import logging
@@ -449,8 +450,9 @@ def build_scratch():
         temp_dir_path = str(temp_dir)
         print("Build and install ScratchLLM.")
         subprocess.check_call([
+            "sudo",
             "chmod",
-            "700",
+            "o+rx",
             ".buildkite/ci/build_scratch.sh",
         ])
         subprocess.check_call(
@@ -467,6 +469,7 @@ def build_scratch():
         ]
         for shared_object_file in scratch_so_files:
             subprocess.check_call([
+                "sudo",
                 "cp",
                 "-f",
                 f"{temp_dir_path}/scratchllm/{shared_object_file}",
@@ -538,4 +541,6 @@ setup(
             "vllm=vllm.scripts:main",
         ],
     },
+    data_files=[('lib', glob.glob('/usr/local/lib/*libglog.so*'))
+                ]  # Include libglog in the wheel for ScratchLLM unit tests
 )

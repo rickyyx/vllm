@@ -45,7 +45,6 @@ steps:
   mirror_hardwares: [amd]
   fast_check: true
   commands:
-  - pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.8/flashinfer-0.0.8+cu121torch2.3-cp310-cp310-linux_x86_64.whl
   - pytest -v -s basic_correctness/test_basic_correctness.py
   - VLLM_ATTENTION_BACKEND=XFORMERS pytest -v -s basic_correctness/test_chunked_prefill.py
   - VLLM_ATTENTION_BACKEND=FLASH_ATTN pytest -v -s basic_correctness/test_chunked_prefill.py
@@ -162,14 +161,12 @@ steps:
 - label: Kernels Test %N
   #mirror_hardwares: [amd]
   commands:
-    - pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.8/flashinfer-0.0.8+cu121torch2.3-cp310-cp310-linux_x86_64.whl
     - pytest -v -s kernels --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT
   parallelism: 4
 
 - label: Models Test
   #mirror_hardwares: [amd]
   commands:
-    - pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.8/flashinfer-0.0.8+cu121torch2.3-cp310-cp310-linux_x86_64.whl
     - pytest -v -s models -m \"not vlm\"
 
 - label: Vision Language Models Test
@@ -260,6 +257,7 @@ steps:
   - export VLLM_WORKER_MULTIPROC_METHOD=spawn
   - bash ./run-tests.sh -c configs/models-small.txt -t 1
 
+# This test is disabled since it requires 4xA100 which we don't have in CI now.
 - label: LM Eval Large Models
   gpu: a100
   num_gpus: 4
@@ -269,14 +267,7 @@ steps:
   - export VLLM_WORKER_MULTIPROC_METHOD=spawn
   - bash ./run-tests.sh -c configs/models-large.txt -t 4
 
-- label: Documentation Build
-  working_dir: "/vllm-workspace/test_docs/docs"
-  fast_check: true
-  no_gpu: True
-  commands:
-  - pip install -r requirements-docs.txt
-  - SPHINXOPTS=\"-W\" make html
-
+# This test is disabled since it requires 4xA100 which we don't have in CI now.
 - label: Distributed Tests (A100)
   gpu: a100
   num_gpus: 4
@@ -286,7 +277,6 @@ steps:
   - pytest -v -s distributed/test_custom_all_reduce.py
   - TEST_DIST_MODEL=facebook/opt-125m DISTRIBUTED_EXECUTOR_BACKEND=ray pytest -v -s distributed/test_basic_distributed_correctness.py
   - TEST_DIST_MODEL=facebook/opt-125m DISTRIBUTED_EXECUTOR_BACKEND=mp pytest -v -s distributed/test_basic_distributed_correctness.py
-  - pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.0.8/flashinfer-0.0.8+cu121torch2.3-cp310-cp310-linux_x86_64.whl
   - VLLM_ATTENTION_BACKEND=FLASHINFER TEST_DIST_MODEL=facebook/opt-125m DISTRIBUTED_EXECUTOR_BACKEND=ray pytest -v -s distributed/test_basic_distributed_correctness.py
   - VLLM_ATTENTION_BACKEND=FLASHINFER TEST_DIST_MODEL=meta-llama/Meta-Llama-3-8B DISTRIBUTED_EXECUTOR_BACKEND=ray pytest -v -s distributed/test_basic_distributed_correctness.py
   - pytest -v -s -x lora/test_mixtral.py
