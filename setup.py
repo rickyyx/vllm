@@ -465,7 +465,8 @@ def build_scratch():
             # TODO(sang): H100
             # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",  # noqa
             # TODO(sang): A10
-            "scratch-ll38b-s1-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+            "scratch-ll27b-s1-a10g-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
+            "scratch-ll38b-s1-a10g-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
         ]
         for shared_object_file in scratch_so_files:
             subprocess.check_call([

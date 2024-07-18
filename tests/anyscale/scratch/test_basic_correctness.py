@@ -8,8 +8,9 @@ import pytest
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 MODELS = [
-    # "meta-llama/Llama-2-7b-hf",
-    "meta-llama/Meta-Llama-3-8B",
+    "meta-llama/Llama-2-7b-hf",
+    # "meta-llama/Meta-Llama-3-8B",
+    # "meta-llama/Meta-Llama-3-8B-Instruct",
 ]
 
 assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
@@ -28,11 +29,6 @@ def test_models(
         dtype: str,
         max_tokens: int,  # not working
 ) -> None:
-    # Pop out prompts that currently fail.
-    # TODO(sang, ricky): Fix it.
-    example_prompts.pop(2)
-    example_prompts.pop()
-
     hf_model = hf_runner(model, dtype=dtype)
     hf_outputs = hf_model.generate_greedy(example_prompts, max_tokens)
     del hf_model

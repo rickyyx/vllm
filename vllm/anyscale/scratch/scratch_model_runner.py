@@ -1,5 +1,8 @@
+# yapf: disable
+
 import dataclasses
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import (TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Set,
@@ -28,10 +31,14 @@ if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
-from vllm.anyscale.scratch.constants import (SCRATCH_EXECUTABLE_PATH,
+from vllm.anyscale.scratch.constants import (ROOT_DIRECTORY,
+                                             SCRATCH_BUILD_PREFIX_LLAMA_2,
+                                             SCRATCH_BUILD_PREFIX_LLAMA_3,
+                                             SCRATCH_BUILD_PREFIX_LLAMA_3_INST,
+                                             SCRATCH_BUILD_TYPE,
+                                             SCRATCH_EXECUTABLE_PATH_ENV_VAR,
                                              SCRATCH_TMP_DIR,
-                                             SCRATCH_WEIGHTS_BUCKET_NAME,
-                                             SCRATCH_WEIGHTS_PREFIX)
+                                             SCRATCH_WEIGHTS_BUCKET_NAME)
 
 logger = init_logger(__name__)
 
@@ -47,7 +54,33 @@ def import_scratch(path: Path):
     return scratch
 
 
-scratch_mod = import_scratch(Path(SCRATCH_EXECUTABLE_PATH))
+def get_scratch_executable_path(model_name):
+    model_name = model_name.lower()
+    if "llama-2" in model_name:
+        prefix = SCRATCH_BUILD_PREFIX_LLAMA_2
+    elif "llama-3" in model_name:
+        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3
+    else:
+        raise AssertionError(f"{model_name} is not supported by Scratch")
+
+    return os.getenv(
+        SCRATCH_EXECUTABLE_PATH_ENV_VAR,
+        f"{ROOT_DIRECTORY}/scratch-{prefix}-{SCRATCH_BUILD_TYPE}"
+        ".cpython-39-x86_64-linux-gnu.so")
+
+
+def get_scratch_weights_uri(model_name):
+    print(model_name)
+    model_name = model_name.lower()
+    if model_name == "meta-llama/llama-2-7b-hf":
+        prefix = SCRATCH_BUILD_PREFIX_LLAMA_2
+    elif model_name == "meta-llama/meta-llama-3-8b":
+        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3
+    elif model_name == "meta-llama/meta-llama-3-8b-instruct":
+        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3_INST
+    else:
+        raise AssertionError(f"{model_name} is not supported by Scratch")
+    return f"staging_weights/{prefix}"
 
 
 class ScratchSession:
@@ -176,7 +209,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         self.pin_memory = is_pin_memory_available()
 
         # Lazily initialized.
-        self.scratch: scratch_mod.ScratchAPI  # type: ignore
+        self.scratch = None  # type: ignore
         # We create a model that has a subset of functionalities
         # that scratch doesn't support. I.e., norm, logit compute,
         # and sampling. NOTE: We should make sure the config is in sync.
@@ -216,15 +249,17 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         # TODO(sang): Need to obtain this programmatically.
         # download_dir = weights_dir / "ll27b-s1-cuda-f16-fullopt"
         base_dir = str(weights_dir.resolve())
+        scratch_mod = import_scratch(
+            Path(get_scratch_executable_path(self.model_config.model.lower())))
         self.scratch = scratch_mod.ScratchAPI(base_dir)
         scratch_subdir = self.scratch.get_param_subdir()
         download_dir = weights_dir / scratch_subdir
         download_dir.mkdir(exist_ok=True)
         download_dir_path = str(download_dir.absolute())
         self.load_config.download_dir = str(weights_dir.absolute())
-        self._download_scratch_weights(SCRATCH_WEIGHTS_PREFIX,
-                                       download_dir_path,
-                                       SCRATCH_WEIGHTS_BUCKET_NAME)
+        self._download_scratch_weights(
+            get_scratch_weights_uri(self.model_config.model.lower()),
+            download_dir_path, SCRATCH_WEIGHTS_BUCKET_NAME)
 
         with CudaMemoryProfiler() as m:
             self.model = get_model(
@@ -408,7 +443,6 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         input_tokens_tensor = torch.tensor(input_tokens,
                                            device=self.device,
                                            dtype=torch.int)
-
         # Run prefills. Scratch currently doesn't support batch prefills,
         # so we should iterate one by one.
         cum_query_length = 0
@@ -430,7 +464,6 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
                 True,
             )
             cum_query_length += query_len
-
         # Run decodes.
         if len(decode_session_ids) > 0:
             session_ids_tensor = torch.tensor(decode_session_ids,
