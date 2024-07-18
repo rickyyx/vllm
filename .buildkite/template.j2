@@ -80,10 +80,18 @@ steps:
     {% if step.anyscale %}
     - label: "{{ step.label }}"
       agents:
+        {% if step.gpu == "a10" %}
+        {% if step.num_gpus == 2 or step.num_gpus == 4 %}
+        queue: vllm-gpu-a10-4
+        {% else %}
+        queue: vllm-gpu-a10-1
+        {% endif %}
+        {% else %}
         {% if step.num_gpus == 2 or step.num_gpus == 4 %}
         queue: vllm-gpu-4
         {% else %}
         queue: vllm-gpu-1
+        {% endif %}
         {% endif %}
       soft_fail: {{ step.soft_fail or false }}
       {% if step.parallelism %}

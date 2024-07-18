@@ -6,6 +6,7 @@ steps:
 
   - label: Anyscale ScratchLLM + vLLM integration unit test
     working_dir: "/vllm-workspace"
+    gpu: a10
     commands:
     - bash .buildkite/ci/run_scratch_unit_test.sh
 
