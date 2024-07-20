@@ -2,7 +2,6 @@
 
 import dataclasses
 import importlib.util
-import os
 import sys
 from pathlib import Path
 from typing import (TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Set,
@@ -31,14 +30,10 @@ if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
-from vllm.anyscale.scratch.constants import (ROOT_DIRECTORY,
-                                             SCRATCH_BUILD_PREFIX_LLAMA_2,
-                                             SCRATCH_BUILD_PREFIX_LLAMA_3,
-                                             SCRATCH_BUILD_PREFIX_LLAMA_3_INST,
-                                             SCRATCH_BUILD_TYPE,
-                                             SCRATCH_EXECUTABLE_PATH_ENV_VAR,
-                                             SCRATCH_TMP_DIR,
+from vllm.anyscale.scratch.constants import (SCRATCH_TMP_DIR,
                                              SCRATCH_WEIGHTS_BUCKET_NAME)
+from vllm.anyscale.scratch.selector import (get_scratch_executable_path,
+                                            get_scratch_weights_uri)
 
 logger = init_logger(__name__)
 
@@ -52,35 +47,6 @@ def import_scratch(path: Path):
     sys.modules[SCRATCH_MODULE_NAME] = scratch
     spec.loader.exec_module(scratch)
     return scratch
-
-
-def get_scratch_executable_path(model_name):
-    model_name = model_name.lower()
-    if "llama-2" in model_name:
-        prefix = SCRATCH_BUILD_PREFIX_LLAMA_2
-    elif "llama-3" in model_name:
-        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3
-    else:
-        raise AssertionError(f"{model_name} is not supported by Scratch")
-
-    return os.getenv(
-        SCRATCH_EXECUTABLE_PATH_ENV_VAR,
-        f"{ROOT_DIRECTORY}/scratch-{prefix}-{SCRATCH_BUILD_TYPE}"
-        ".cpython-39-x86_64-linux-gnu.so")
-
-
-def get_scratch_weights_uri(model_name):
-    print(model_name)
-    model_name = model_name.lower()
-    if model_name == "meta-llama/llama-2-7b-hf":
-        prefix = SCRATCH_BUILD_PREFIX_LLAMA_2
-    elif model_name == "meta-llama/meta-llama-3-8b":
-        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3
-    elif model_name == "meta-llama/meta-llama-3-8b-instruct":
-        prefix = SCRATCH_BUILD_PREFIX_LLAMA_3_INST
-    else:
-        raise AssertionError(f"{model_name} is not supported by Scratch")
-    return f"staging_weights/{prefix}"
 
 
 class ScratchSession:

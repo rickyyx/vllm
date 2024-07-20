@@ -42,10 +42,10 @@ echo "Build scratchllm"
 ls
 bash setup_pybind.sh
 
-# TODO(sang): Support custom flags.
-# TODO(sang): H100
-# make m=ll38b h=cuda t=f16 b=fullopt s=4 scratch_runner
-# TODO(sang): A10
+# Build so files for A10.
 make m=ll27b h=a10g t=f16 b=fullopt s=1 scratch_runner
 make m=ll38b h=a10g t=f16 b=fullopt s=1 scratch_runner
+# Build so files for H100.
+make m=ll27b h=h100 t=f16 b=fullopt s=4 scratch_runner
+make m=ll38b h=h100 t=f16 b=fullopt s=4 scratch_runner
 popd
