@@ -4,8 +4,8 @@ import dataclasses
 import importlib.util
 import sys
 from pathlib import Path
-from typing import (TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Set,
-                    Type, TypeVar, Union)
+from typing import (TYPE_CHECKING, Any, Dict, List, Optional, Set, Type,
+                    TypeVar, Union)
 
 import boto3
 import torch
@@ -23,7 +23,7 @@ from vllm.model_executor.model_loader import get_model
 from vllm.sequence import (CompletionSequenceGroupOutput, IntermediateTensors,
                            Logprob, SamplerOutput, SequenceGroupMetadata,
                            SequenceOutput)
-from vllm.utils import CudaMemoryProfiler, LRUCache, is_pin_memory_available
+from vllm.utils import CudaMemoryProfiler, is_pin_memory_available
 from vllm.worker.model_runner_base import ModelRunnerBase, ModelRunnerInputBase
 
 if TYPE_CHECKING:
@@ -56,55 +56,29 @@ class ScratchSession:
         self.scratch_session_id = scratch_session_id
 
 
-class ScratchLRUCache(LRUCache[ScratchSession]):
-    """LRU cache to store scratch sessions.
-
-    It is a temporary hack to figure out the finished sessions.
-    It relies on vllm guarantees to complete running seq groups.
-    """
-
-    def __init__(self, capacity: int, scratch_api):
-        self._scratch_api = scratch_api
-        super().__init__(capacity)
-
-    def _on_remove(self, key: Hashable, value: ScratchSession):
-        # Currently, key and values are both int session id.
-        self._scratch_api.delete_session(value.scratch_session_id)
-
-
 class ScratchSessionManager:
     """A class that manages multiple scratch sessions.
-
-    Stale sessions are currently automatically deleted. "IT IS A HACK".
-    vLLM model runner cannot know which sequence groups are finished/preempted.
-    We use LRUCache to track the max_num_seqs * 2 session and clean up session
-    that are least recently used. (Note this also means we can use up to 2X
-    GPU memory for kv cache than needed). It is working because vLLM scheduler
-    prioritizes running decode all the time. It may break when preemption of
-    swapping happens. Currently, we are disabling these features when
-    ScratchLLM is used. This can be solved once we pipeline the
-    finished/preempted sequence group information to model runner in a few
-    weeks.
     """
 
     def __init__(self, scratch_api, max_num_seqs: int):
         # ScratchAPI used to create/delete sessions.
         self._scratch_api = scratch_api
-        # Set capacity to max_num_seqs * 2 so that old sequences are
-        # deleted. Note that it is a hack, and it will be fixed once
-        # vLLM plumbs finished session info to the model runner.
-        # vLLM request_id -> scratch session.
-        self._session_cache = ScratchLRUCache(max_num_seqs * 2, scratch_api)
+        # request_id -> session_id (Scratch session ID).
+        self._session_cache: Dict[str, ScratchSession] = {}
 
     def get_or_create_session(self, vllm_request_id: int) -> ScratchSession:
         if vllm_request_id in self._session_cache:
             return self._session_cache[vllm_request_id]
-
         # Session id is guaranteed to be unique from scratch.
         scratch_session_id: int = self._scratch_api.new_session()
         session = ScratchSession(scratch_session_id)
         self._session_cache[vllm_request_id] = session
         return session
+
+    def delete_session(self, vllm_request_id: int):
+        session = self._session_cache[vllm_request_id]
+        self._scratch_api.delete_session(session.scratch_session_id)
+        del self._session_cache[vllm_request_id]
 
 
 TModelInputForScratch = TypeVar('TModelInputForScratch',
@@ -295,6 +269,12 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         decode_session_ids: List[int] = []
         query_lens: List[int] = []
         seq_lens: List[int] = []
+
+        # GC finished request ids.
+        for finished_request_id in finished_requests_ids:
+            self._scratch_session_manager.delete_session(
+                finished_request_id
+            )
 
         for seq_group_metadata in seq_group_metadata_list:
             request_id = seq_group_metadata.request_id
