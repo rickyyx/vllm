@@ -903,6 +903,7 @@ if USE_SCRATCH:
         tokenizer_pool_extra_config: Optional[dict] = None
         num_gpu_blocks_override: Optional[int] = 1
         worker_use_ray: bool = False
+        enable_chunked_prefill: bool = False
 
     class EngineArgsWithScratchValidation(OriginalEngineArgs):
 
