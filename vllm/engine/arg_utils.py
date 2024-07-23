@@ -16,13 +16,11 @@ from vllm.utils import FlexibleArgumentParser
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
-
 if TYPE_CHECKING:
     from vllm.transformers_utils.tokenizer_group.base_tokenizer_group import (
         BaseTokenizerGroup)
 
 logger = init_logger(__name__)
-
 
 
 def nullable_str(val: str):

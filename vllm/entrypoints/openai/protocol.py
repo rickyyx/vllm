@@ -267,8 +267,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
             logits_processors=logits_processors,
             truncate_prompt_tokens=self.truncate_prompt_tokens,
             response_format=self.response_format.model_dump(
-                by_alias=True) if self.response_format is not None else None
-        )
+                by_alias=True) if self.response_format is not None else None)
 
     @model_validator(mode='before')
     @classmethod

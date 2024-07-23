@@ -11,7 +11,7 @@ ARG CUDA_VERSION=12.4.1
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu20.04 AS base
 
 ARG CUDA_VERSION=12.4.1
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -21,7 +21,7 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && apt-get install -y ccache software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update -y \
-    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv \
+    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv python3-pip \
     && if [ "${PYTHON_VERSION}" != "3" ]; then update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1; fi \
     && python3 --version
 
@@ -119,9 +119,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && sudo mv sccache-v0.8.1-x86_64-unknown-linux-musl/sccache /usr/bin/sccache \
         && rm -rf sccache.tar.gz sccache-v0.8.1-x86_64-unknown-linux-musl \
         && if [ "$CUDA_VERSION" = "11.8.0" ]; then \
-            export SCCACHE_BUCKET=vllm-build-sccache-2; \
+            export SCCACHE_BUCKET=anyscale-vllm-sccache; \
            else \
-            export SCCACHE_BUCKET=vllm-build-sccache; \
+            export SCCACHE_BUCKET=anyscale-vllm-sccache; \
            fi \
         && export SCCACHE_REGION=us-west-2 \
         && export CMAKE_BUILD_TYPE=Release \
