@@ -487,7 +487,10 @@ ext_modules = []
 if _is_cuda() or _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
     # Anyscale start
-    build_scratch()
+    disable_scratch_build = bool(
+        int(os.environ.get("DISABLE_SCRATCH_BUILD", "0")))
+    if not disable_scratch_build:
+        build_scratch()
     # Anyscale end
 
 if _build_custom_ops():
