@@ -15,15 +15,17 @@ SCRATCH_DIR=${TMP_DIR}/scratchllm
 rm -rf "${SCRATCH_DIR}"
 
 echo "Install ScratchLLM to ${SCRATCH_DIR}"
-COMMIT="f86514c205c05e81717ae3357f80fc3f85326e34"
+COMMIT="e61abe40feac14a8080be7bc870db998abde9061"
 SCRATCH_REPO="scratchllm"
 # Anyscale-legacy-work account
-URI="s3://anyscale-test/scratch-repo-archive/${COMMIT}/${SCRATCH_REPO}.zip"
+URI="s3://scratch-working-dirs/repos/scratch_${COMMIT}.tar.gz"
 aws s3 cp "${URI}" "${TMP_DIR}"
+mkdir -p $SCRATCH_DIR
 pushd "${TMP_DIR}"
-echo "unzip ${SCRATCH_REPO}.zip"
-unzip "${SCRATCH_REPO}.zip"
-rm "${SCRATCH_REPO}.zip"
+SCRATCH_TAR_FILE="scratch_${COMMIT}.tar.gz"
+echo "tar -xzvf ${SCRATCH_TAR_FILE}"
+tar -xzvf ${SCRATCH_TAR_FILE} -C ${SCRATCH_REPO}
+rm ${SCRATCH_TAR_FILE}
 popd
 
 pushd "${SCRATCH_DIR}"

@@ -51,6 +51,10 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     # checks.
     "USE_SCRATCH_SAMPLE":
     lambda: bool(int(os.getenv("ANYSCALE_VLLM_USE_SCRATCH_SAMPLE", False))),
+    # Used to pass HF_MODEL_ID to scratch. vLLM doesn't guarantee to pass
+    # the correct hf_model_id, so we rely on this env var.
+    "SCRATCH_HF_MODEL_ID":
+    lambda: os.getenv("ANYSCALE_VLLM_SCRATCH_HF_MODEL_ID", None),
 }
 
 # end-env-vars-definition

@@ -7,6 +7,7 @@ import torch
 
 from vllm.platforms import current_platform
 
+from vllm.anyscale import anyscale_envs
 from vllm.anyscale.scratch.constants import (ROOT_DIRECTORY,
                                              SCRATCH_BUILD_TYPE,
                                              SCRATCH_EXECUTABLE_PATH_ENV_VAR)
@@ -32,6 +33,9 @@ def get_gpu_type() -> SupportedGPUTypes:
 
 
 def get_model_properties(model_name: str) -> ModelProperties:
+    if anyscale_envs.SCRATCH_HF_MODEL_ID:
+        model_name = anyscale_envs.SCRATCH_HF_MODEL_ID
+
     model_name = model_name.lower()
     arch_type: Optional[str] = None
     shard_size: Optional[int] = None

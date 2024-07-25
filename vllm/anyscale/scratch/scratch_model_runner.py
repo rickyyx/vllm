@@ -165,7 +165,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         assert self.model_config.dtype == torch.half, (
             "Only half type is allowed.")
         assert self.scheduler_config.chunked_prefill_enabled is False, (
-            "Chunked prefill not supported")
+            "Chunked prefill is not supported by ScratchLLM")
         assert self.sliding_window is None, ("Sliding window not supported")
         assert self.kv_cache_dtype == "auto", (
             "Currently, Scratch doesn't use kv cache.")

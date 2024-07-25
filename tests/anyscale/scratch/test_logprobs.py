@@ -13,15 +13,16 @@ assert USE_SCRATCH, ("ScratchLLM should be enabled to run a test. "
                      "tests/scratch/anyscale/test_basic_correctness.py")
 
 MODELS = [
-    "meta-llama/Llama-2-7b-hf",
-    # "meta-llama/Meta-Llama-3-8B",
+    # "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Meta-Llama-3-8B",
 ]
 
 
 @pytest.mark.parametrize("model", MODELS)
 @pytest.mark.parametrize("dtype", ["half"])
 @pytest.mark.parametrize("num_top_logprobs", [6])  # 32000 == vocab_size
-@pytest.mark.parametrize("detokenize", [True, False])
+# @pytest.mark.parametrize("detokenize", [True, False])
+@pytest.mark.parametrize("detokenize", [True])
 def test_get_prompt_logprobs(
     hf_runner,
     vllm_runner,

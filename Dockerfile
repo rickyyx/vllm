@@ -27,11 +27,11 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
 
 # START: Anyscale only
 ENV PIP_USE_DEPRECATED=legacy-resolver
-RUN update-alternatives --set python3 /usr/bin/python3.9 \
-    && ln -sf /usr/bin/python3.9-config /usr/bin/python3-config \
-    && python3 -m pip --version \
-    && apt-get update -y \
-    && apt-get install -y unzip wget tar
+RUN apt-get update -y \
+    && apt-get install -y unzip wget tar python3-pip \
+    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
+    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
+    && python3 -m pip --version
 # END: Anyscale only
 
 RUN apt-get update -y \
@@ -71,7 +71,7 @@ ENV TORCH_CUDA_ARCH_LIST=${torch_cuda_arch_list}
 #################### WHEEL BUILD IMAGE ####################
 FROM base AS build
 
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 
 # install build dependencies
 COPY requirements-build.txt requirements-build.txt
@@ -173,10 +173,11 @@ RUN pip --verbose wheel -r requirements-mamba.txt \
 # image with vLLM installed
 FROM nvidia/cuda:${CUDA_VERSION}-base-ubuntu20.04 AS vllm-base
 ARG CUDA_VERSION=12.4.1
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 WORKDIR /vllm-workspace
 
 # START: Anyscale only
+ARG PYTHON_VERSION=3.9
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_USE_DEPRECATED=legacy-resolver
 RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
@@ -185,14 +186,14 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && apt-get install -y ccache software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update -y \    
-    && apt-get install -y python3.9 python3.9-dev python3.9-venv python3-pip \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1 \
-    && update-alternatives --set python3 /usr/bin/python3.9 \
-    && ln -sf /usr/bin/python3.9-config /usr/bin/python3-config \
+    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv python3-pip \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 \
+    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
+    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
     && python3 -m pip --version
 
 RUN apt-get update -y \
-    && apt-get install -y libgflags-dev
+    && apt-get install -y libgflags-dev libunwind-dev
 # END: Anyscale only
 
 RUN apt-get update -y \

@@ -8,8 +8,8 @@ import pytest
 from vllm.anyscale.anyscale_envs import USE_SCRATCH
 
 MODELS = [
-    "meta-llama/Llama-2-7b-hf",
-    # "meta-llama/Meta-Llama-3-8B",
+    # "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Meta-Llama-3-8B",
     # "meta-llama/Meta-Llama-3-8B-Instruct",
 ]
 

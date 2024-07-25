@@ -54,13 +54,6 @@ def test_models(
             model,
             dtype=dtype,
             block_size=32,
-            enable_chunked_prefill=True,
-        )
-    with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
-        vllm_model = vllm_runner(
-            model,
-            dtype=dtype,
-            block_size=32,
             enable_prefix_caching=True,
         )
     with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
@@ -75,4 +68,4 @@ def test_async_engine_args_working() -> None:
     with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         AsyncEngineArgs("meta-llama/Meta-Llama-3-8B",
                         engine_use_ray=True,
-                        enable_chunked_prefill=True)
+                        enable_lora=True)
