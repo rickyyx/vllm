@@ -10,12 +10,12 @@ from vllm.distributed import (tensor_model_parallel_all_gather,
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     VocabParallelEmbedding)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
+from vllm.platforms import current_platform
 from vllm.sequence import SequenceGroupMetadata
 
 from vllm.anyscale import anyscale_envs
 from vllm.anyscale.constrained_decoding.json_mode_manager import (
     JSONModeManager)
-from vllm.platforms import current_platform
 
 
 class LogitsProcessor(nn.Module):
