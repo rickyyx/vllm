@@ -15,7 +15,7 @@ SCRATCH_DIR=${TMP_DIR}/scratchllm
 rm -rf "${SCRATCH_DIR}"
 
 echo "Install ScratchLLM to ${SCRATCH_DIR}"
-COMMIT="e61abe40feac14a8080be7bc870db998abde9061"
+COMMIT="31a9c5b08e83f11eaf02f75c1f448be3cabcd92d"
 SCRATCH_REPO="scratchllm"
 # Anyscale-legacy-work account
 URI="s3://scratch-working-dirs/repos/scratch_${COMMIT}.tar.gz"
@@ -45,9 +45,9 @@ ls
 bash setup_pybind.sh
 
 # Build so files for A10.
-make m=ll27b h=a10g t=f16 b=fullopt s=1 scratch_runner
-make m=ll38b h=a10g t=f16 b=fullopt s=1 scratch_runner
+make m=ll27b h=a10g t=f16 b=fullopt btc=y scratch_runner
+make m=ll38b h=a10g t=f16 b=fullopt btc=y scratch_runner
 # Build so files for H100.
-make m=ll27b h=h100 t=f16 b=fullopt s=4 scratch_runner
-make m=ll38b h=h100 t=f16 b=fullopt s=4 scratch_runner
+make m=ll27b h=h100 t=f16 b=fullopt btc=y scratch_runner
+make m=ll38b h=h100 t=f16 b=fullopt btc=y scratch_runner
 popd

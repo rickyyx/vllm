@@ -30,9 +30,9 @@ if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
-from vllm.anyscale.scratch.constants import (SCRATCH_TMP_DIR,
-                                             SCRATCH_WEIGHTS_BUCKET_NAME)
+from vllm.anyscale.scratch.constants import SCRATCH_WEIGHTS_BUCKET_NAME
 from vllm.anyscale.scratch.selector import (get_scratch_executable_path,
+                                            get_scratch_tmp_dir,
                                             get_scratch_weights_uri)
 
 logger = init_logger(__name__)
@@ -182,8 +182,8 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
 
     def load_model(self) -> None:
         assert self.load_config.download_dir is None
-        tmp_dir = Path(SCRATCH_TMP_DIR)
-        tmp_dir.mkdir(exist_ok=True)
+        tmp_dir = get_scratch_tmp_dir(self.model_config.model.lower())
+        tmp_dir.mkdir(exist_ok=True, parents=True)
         weights_dir = tmp_dir / "parameters"
         weights_dir.mkdir(exist_ok=True)
         # TODO(sang): Need to obtain this programmatically.
@@ -192,6 +192,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         scratch_mod = import_scratch(
             Path(get_scratch_executable_path(self.model_config.model.lower())))
         self.scratch = scratch_mod.ScratchAPI(base_dir)
+        logger.info("Scratch API loaded at %s", base_dir)
         scratch_subdir = self.scratch.get_param_subdir()
         download_dir = weights_dir / scratch_subdir
         download_dir.mkdir(exist_ok=True)

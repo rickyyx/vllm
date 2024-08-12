@@ -198,10 +198,6 @@ class ScratchModelRegistry:
     """
 
     @staticmethod
-    def load_model_cls(model_arch: str) -> Optional[Type[nn.Module]]:
-        return ModelRegistry._load_scratch_cls(model_arch)
-
-    @staticmethod
     def get_supported_archs() -> List[str]:
         return list(_SCRATCH_MODELS.keys())
 
@@ -224,6 +220,19 @@ class ScratchModelRegistry:
     @staticmethod
     def is_embedding_model(model_arch: str) -> bool:
         return False
+
+    @staticmethod
+    def resolve_model_cls(
+            architectures: List[str]) -> Tuple[Type[nn.Module], str]:
+        for arch in ScratchModelRegistry.get_supported_archs():
+            model_cls = ScratchModelRegistry._load_scratch_cls(arch)
+            if model_cls is not None:
+                return (model_cls, arch)
+
+        raise ValueError(
+            f"Model architectures {architectures} are not supported for now. "
+            "Supported architectures: "
+            f"{ScratchModelRegistry.get_supported_archs()}")
 
 
 if USE_SCRATCH:

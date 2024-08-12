@@ -1,6 +1,7 @@
 import enum
 import os
 from collections import namedtuple
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -10,7 +11,8 @@ from vllm.platforms import current_platform
 from vllm.anyscale import anyscale_envs
 from vllm.anyscale.scratch.constants import (ROOT_DIRECTORY,
                                              SCRATCH_BUILD_TYPE,
-                                             SCRATCH_EXECUTABLE_PATH_ENV_VAR)
+                                             SCRATCH_EXECUTABLE_PATH_ENV_VAR,
+                                             SCRATCH_TMP_DIR)
 
 ModelProperties = namedtuple(
     "ModelProperties",
@@ -80,9 +82,9 @@ def get_model_properties(model_name: str) -> ModelProperties:
 
 
 def get_scratch_executable_path(model_name: str) -> str:
-    # Executable looks like ll38b-s4-h100-f16
+    # Executable looks like ll38b-h100-f16
     properties = get_model_properties(model_name)
-    executable_prefix = (f"{properties.arch_type}-s{properties.shard_size}"
+    executable_prefix = (f"{properties.arch_type}"
                          f"-{properties.device_name}-f16")
 
     return os.getenv(
@@ -91,9 +93,14 @@ def get_scratch_executable_path(model_name: str) -> str:
         ".cpython-39-x86_64-linux-gnu.so")
 
 
-def get_scratch_weights_uri(model_name: str) -> str:
-    # Weights looks like ll38b-inst-s4-h100-f16
+def get_scratch_tmp_dir(model_name: str) -> Path:
     properties = get_model_properties(model_name)
-    weights_path_prefix = (f"{properties.model_type}-s{properties.shard_size}"
+    return Path(SCRATCH_TMP_DIR) / f"{properties.model_type}"
+
+
+def get_scratch_weights_uri(model_name: str) -> str:
+    # Weights looks like ll38b-inst-h100-f16
+    properties = get_model_properties(model_name)
+    weights_path_prefix = (f"{properties.model_type}"
                            f"-{properties.device_name}-f16")
     return f"staging_weights/{weights_path_prefix}"

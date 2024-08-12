@@ -455,24 +455,18 @@ def build_scratch():
         subprocess.check_call(
             ["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
         print("Copy .so file to vllm folder.")
-        # TODO(sang): Support flexible .so file names.
         subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
-        # TODO(sang): Support A10 and H100 automatically.
-        scratch_so_files = [
-            # TODO(sang): H100
-            # "scratch-ll38b-s4-cuda-f16-fullopt.cpython-39-x86_64-linux-gnu.so",  # noqa
-            # TODO(sang): A10
-            "scratch-ll27b-s1-a10g-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-            "scratch-ll38b-s1-a10g-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-            "scratch-ll27b-s4-h100-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-            "scratch-ll38b-s4-h100-f16-fullopt.cpython-39-x86_64-linux-gnu.so",
-        ]
+
+        scratch_so_files_pattern = os.path.join(f"{temp_dir_path}/scratchllm",
+                                                "scratch*.so")
+        scratch_so_files = glob.glob(scratch_so_files_pattern)
         for shared_object_file in scratch_so_files:
+            print(f"Copying {shared_object_file} to vllm folder.")
             subprocess.check_call([
                 "sudo",
                 "cp",
                 "-f",
-                f"{temp_dir_path}/scratchllm/{shared_object_file}",
+                shared_object_file,
                 os.path.join(ROOT_DIR, "vllm"),
             ])
 

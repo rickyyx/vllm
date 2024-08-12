@@ -912,6 +912,7 @@ if USE_SCRATCH:
         num_gpu_blocks_override: Optional[int] = 1
         worker_use_ray: bool = False
         enable_chunked_prefill: bool = False
+        enforce_eager: bool = False
 
     class EngineArgsWithScratchValidation(OriginalEngineArgs):
 

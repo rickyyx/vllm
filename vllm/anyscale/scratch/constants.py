@@ -7,4 +7,3 @@ SCRATCH_BUILD_TYPE = "fullopt"
 ROOT_DIRECTORY = str(Path(__file__).parents[2])
 SCRATCH_WEIGHTS_BUCKET_NAME = "scratch-working-dirs"
 SCRATCH_TMP_DIR = "/tmp/scratch/"
-SCRATCH_WEIGHTS_PATH = "/tmp/scratch/"
