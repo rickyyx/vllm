@@ -50,6 +50,8 @@ from vllm.usage.usage_lib import (UsageContext, is_usage_stats_enabled,
 from vllm.utils import Counter
 from vllm.version import __version__ as VLLM_VERSION
 
+from vllm.anyscale.exceptions import RequestFailedError
+
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
 
@@ -1223,7 +1225,16 @@ class LLMEngine:
         for scheduled_seq_group in scheduled_seq_groups:
             seq_group = scheduled_seq_group.seq_group
             seq_group.maybe_set_first_token_time(now)
-            request_output = RequestOutputFactory.create(seq_group)
+            # Anyscale start
+            has_failed = seq_group.has_failed_seqs()
+            error = None
+            if has_failed:
+                error = RequestFailedError(
+                    f"Request {seq_group.request_id} failed. "
+                    f"State: {seq_group}")
+            request_output = RequestOutputFactory.create(seq_group,
+                                                         error=error)
+            # Anyscale end
             request_outputs.append(request_output)
         for seq_group in ignored_seq_groups:
             request_output = RequestOutputFactory.create(seq_group)

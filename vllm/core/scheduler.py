@@ -15,6 +15,8 @@ from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
 from vllm.utils import PyObjectCache
 
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
+
 logger = init_logger(__name__)
 
 # Test-only. If configured, decode is preempted with
@@ -1196,6 +1198,10 @@ class Scheduler:
         blocks_to_swap_out: List[Tuple[int, int]],
         preemption_mode: Optional[PreemptionMode] = None,
     ) -> PreemptionMode:
+        # TODO(sang): This is a temporary hack. We should allow to
+        # disable preemption to master oss.
+        assert USE_SCRATCH is False, (
+            "Preemption is not supported for ScratchLLM now.")
         # If preemption mode is not specified, we determine the mode as follows:
         # We use recomputation by default since it incurs lower overhead than
         # swapping. However, when the sequence group has multiple sequences

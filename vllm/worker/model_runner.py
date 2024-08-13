@@ -64,6 +64,8 @@ from vllm.worker.model_runner_base import (
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
+from vllm.anyscale import anyscale_envs
+
 logger = init_logger(__name__)
 
 _PAD_SLOT_ID = -1
@@ -898,6 +900,13 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
         logger.info("Loading model weights took %.4f GB",
                     self.model_memory_usage / float(2**30))
 
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            logit_processor = getattr(self.model, "logits_processor", None)
+            assert logit_processor is not None
+            logit_processor.initialize(self.model_config.tokenizer)
+        # Anyscale end
+
         if self.lora_config:
             assert supports_lora(self.model), "Model does not support LoRA"
             assert not supports_multimodal(
@@ -1449,6 +1458,16 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             sampling_metadata = None
         is_prompt = (seq_group_metadata_list[0].is_prompt
                      if seq_group_metadata_list else None)
+
+        # Anyscale start
+        # Temporary. will be removed.
+        if (anyscale_envs.ENABLE_JSON_MODE and self.is_driver_worker
+                and len(seq_group_metadata_list) > 0):
+            logit_processor = getattr(self.model, "logits_processor", None)
+            assert logit_processor is not None
+            logit_processor.prepare(seq_group_metadata_list)
+        # Anyscale ends
+
         return dataclasses.replace(model_input,
                                    sampling_metadata=sampling_metadata,
                                    is_prompt=is_prompt,
@@ -1553,8 +1572,17 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         if not get_pp_group().is_last_rank:
             return hidden_or_intermediate_states
 
-        logits = self.model.compute_logits(hidden_or_intermediate_states,
-                                           model_input.sampling_metadata)
+        # Compute the logits.
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            # seq_group_metadata_list is None for non-driver.
+            logits, json_mask_success = self.model.compute_logits(
+                hidden_or_intermediate_states, model_input.sampling_metadata)
+        else:
+            json_mask_success = None
+            logits = self.model.compute_logits(hidden_or_intermediate_states,
+                                               model_input.sampling_metadata)
+        # Anyscale end
 
         if not self.is_driver_worker:
             return []
@@ -1576,6 +1604,12 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             # the communication time as well.
             output.model_forward_time = model_forward_time
 
+        # Anyscale start
+        if anyscale_envs.ENABLE_JSON_MODE:
+            output = self._mark_output_failed_if_needed(
+                output, json_mask_success, model_input.sampling_metadata)
+        # Anyscale end
+
         if self.return_hidden_states:
             # we only need to pass hidden states of most recent token
             assert model_input.sampling_metadata is not None
@@ -1591,6 +1625,30 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             output.hidden_states = hidden_states
 
         return [output]
+
+    # Anyscale start
+    def _mark_output_failed_if_needed(
+            self, sampler_output: Optional[SamplerOutput],
+            json_mask_success: Optional[List[bool]],
+            sampling_metadata: SamplingMetadata) -> Optional[SamplerOutput]:
+
+        # Find failed sequence groups.
+        failed_indices = None
+        if json_mask_success is not None:
+            failed_indices = []
+            for seq_idx, seq_group in enumerate(sampling_metadata.seq_groups):
+                sample_indices = seq_group.sample_indices
+                if not all(json_mask_success[sample_idx]
+                           for sample_idx in sample_indices):
+                    failed_indices.append(seq_idx)
+
+        if sampler_output is None or failed_indices is None:
+            return sampler_output
+
+        sampler_output.mark_sequence_group_failed(failed_indices)
+        return sampler_output
+
+    # Anyscale end
 
 
 class CUDAGraphRunner:
