@@ -123,6 +123,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         prompt_adapter_config: Optional[PromptAdapterConfig] = None,
         multimodal_config: Optional[MultiModalConfig] = None,
         return_hidden_states: bool = False,
+        observability_config: Optional[ObservabilityConfig] = None,
     ):
         assert USE_SCRATCH, (
             "Use ANYSCALE_VLLM_USE_SCRATCH_LLM=1 to use ScratchLLM")
