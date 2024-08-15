@@ -1,0 +1,22 @@
+name: "::param:name::"
+project_id: "prj_hhtx36779x4c2qw6nuc7r2gtmv"
+compute_config: "::param:compute_config::"
+runtime_env:
+  working_dir: "::param:working_dir::"
+  upload_path: "s3://aviary-automated-benchmark/working_dirs"
+cluster_env: "::param:cluster_env::"
+# This is a somewhat hacky way of getting to the runtime env working directory
+# The find command returns the first directory containing "s3" in the name. There should only be one.
+entrypoint: >
+  cd /tmp/ray/session_latest/runtime_resources/working_dir_files 
+  && cd $(find . -maxdepth 1 -type d -name 's3*' -print -quit)
+  && sudo apt update
+  && sudo apt install -y wget autoconf automake cmake libboost-all-dev libdouble-conversion-dev libevent-dev libgflags-dev libgmock-dev libgoogle-glog-dev libgtest-dev liblz4-dev liblzma-dev libsnappy-dev libsodium-dev libtool libzstd-dev ninja-build libcurl4-openssl-dev zlib1g-dev libssl-dev libfmt-dev lsof
+  && sudo wget https://github.com/bazelbuild/bazelisk/releases/download/v1.18.0/bazelisk-linux-amd64 -O /usr/bin/bazel
+  && sudo chmod +x /usr/bin/bazel
+  && pip uninstall -y aviary 
+  && pip uninstall -y vllm xformers flash-attn
+  && pip install pytest pytest-forked pytest-asyncio fschat "accelerate>=0.20.3" "tokenizers>=0.13.3" peft "transformers>=4.33.1" cupy-cuda12x~=13.0.0 boto3 "triton==2.3.0" "torch==2.3.0"
+  && pip uninstall -y flash-attn
+  && ::param:benchmark_scripts::
+max_retries: 0

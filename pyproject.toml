@@ -7,6 +7,9 @@ requires = [
     "setuptools >= 49.4.0",
     "torch == 2.4.0",
     "wheel",
+    # Anyscale start
+    "awscli"
+    # Anyscale end
 ]
 build-backend = "setuptools.build_meta"
 
@@ -68,7 +71,9 @@ files = [
 exclude = [
     "vllm/model_executor/parallel_utils/|vllm/model_executor/models/",
     # Ignore triton kernels in ops.
-    'vllm/attention/ops/.*\.py$'
+    'vllm/attention/ops/.*\.py$',
+    # Anyscale folder should be excluded.
+    "tests/anyscale/*"
 ]
 
 [tool.codespell]
@@ -78,6 +83,7 @@ skip = "./tests/prompts,./benchmarks/sonnet.txt,./tests/lora/data,./build"
 [tool.isort]
 use_parentheses = true
 skip_gitignore = true
+known_local_folder = ["vllm.anyscale"]
 
 [tool.pytest.ini_options]
 markers = [

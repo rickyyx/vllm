@@ -86,6 +86,8 @@ class UsageInfo(OpenAIBaseModel):
 class ResponseFormat(OpenAIBaseModel):
     # type must be "json_object" or "text"
     type: Literal["text", "json_object"]
+    # "schema" is a reserved field by pydantic-v2.
+    schema_: Optional[str] = Field(default=None, alias="schema")
 
 
 class StreamOptions(OpenAIBaseModel):
@@ -275,7 +277,8 @@ class ChatCompletionRequest(OpenAIBaseModel):
             length_penalty=self.length_penalty,
             logits_processors=logits_processors,
             truncate_prompt_tokens=self.truncate_prompt_tokens,
-        )
+            response_format=self.response_format.model_dump(
+                by_alias=True) if self.response_format is not None else None)
 
     @model_validator(mode='before')
     @classmethod
@@ -461,7 +464,8 @@ class CompletionRequest(OpenAIBaseModel):
             length_penalty=self.length_penalty,
             logits_processors=logits_processors,
             truncate_prompt_tokens=self.truncate_prompt_tokens,
-        )
+            response_format=self.response_format.model_dump(
+                by_alias=True) if self.response_format is not None else None)
 
     @model_validator(mode="before")
     @classmethod

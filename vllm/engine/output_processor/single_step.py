@@ -81,6 +81,12 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
 
     def _process_sequence_group_outputs(self, seq_group: SequenceGroup,
                                         outputs: SequenceGroupOutput) -> None:
+        # Anyscale start
+        if outputs.is_failed():
+            seq_group.set_status_to_failed()
+            return
+        # Anyscale end
+
         sampling_params = seq_group.sampling_params
         if sampling_params.n == 1 and not sampling_params.use_beam_search:
             # only have one output sample

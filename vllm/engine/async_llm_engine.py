@@ -746,6 +746,12 @@ class AsyncLLMEngine:
         # Put the outputs into the corresponding streams.
         finished = True
         for request_output in request_outputs:
+            # Anyscale start
+            if (isinstance(request_output, RequestOutput)
+                    and request_output.error is not None):
+                self._request_tracker.propagate_exception(
+                    request_output.error, request_id=request_output.request_id)
+            # Anyscale end
             self._request_tracker.process_request_output(
                 request_output, verbose=self.log_requests)
             finished = finished and request_output.finished

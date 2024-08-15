@@ -11,7 +11,7 @@ ARG CUDA_VERSION=12.4.1
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu20.04 AS base
 
 ARG CUDA_VERSION=12.4.1
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -21,9 +21,18 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && apt-get install -y ccache software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update -y \
-    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv \
+    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv python3-pip \
     && if [ "${PYTHON_VERSION}" != "3" ]; then update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1; fi \
     && python3 --version
+
+# START: Anyscale only
+ENV PIP_USE_DEPRECATED=legacy-resolver
+RUN apt-get update -y \
+    && apt-get install -y unzip wget tar python3-pip \
+    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
+    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
+    && python3 -m pip --version
+# END: Anyscale only
 
 RUN apt-get update -y \
     && apt-get install -y git curl sudo
@@ -44,6 +53,7 @@ WORKDIR /workspace
 COPY requirements-common.txt requirements-common.txt
 COPY requirements-adag.txt requirements-adag.txt
 COPY requirements-cuda.txt requirements-cuda.txt
+COPY requirements-anyscale.txt requirements-anyscale.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r requirements-cuda.txt
 
@@ -62,7 +72,7 @@ ENV TORCH_CUDA_ARCH_LIST=${torch_cuda_arch_list}
 #################### WHEEL BUILD IMAGE ####################
 FROM base AS build
 
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 
 # install build dependencies
 COPY requirements-build.txt requirements-build.txt
@@ -83,6 +93,11 @@ COPY requirements-adag.txt requirements-adag.txt
 COPY requirements-cuda.txt requirements-cuda.txt
 COPY pyproject.toml pyproject.toml
 COPY vllm vllm
+# START: Anyscale only
+COPY .buildkite/ci/build_scratch.sh .buildkite/ci/build_scratch.sh
+COPY .buildkite/ci/install_scratch_dependencies.sh .buildkite/ci/install_scratch_dependencies.sh
+RUN bash .buildkite/ci/install_scratch_dependencies.sh
+# END: Anyscale only
 
 # max jobs used by Ninja to build extensions
 ARG max_jobs=2
@@ -104,9 +119,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && sudo mv sccache-v0.8.1-x86_64-unknown-linux-musl/sccache /usr/bin/sccache \
         && rm -rf sccache.tar.gz sccache-v0.8.1-x86_64-unknown-linux-musl \
         && if [ "$CUDA_VERSION" = "11.8.0" ]; then \
-            export SCCACHE_BUCKET=vllm-build-sccache-2; \
+            export SCCACHE_BUCKET=anyscale-vllm-sccache; \
            else \
-            export SCCACHE_BUCKET=vllm-build-sccache; \
+            export SCCACHE_BUCKET=anyscale-vllm-sccache; \
            fi \
         && export SCCACHE_REGION=us-west-2 \
         && export CMAKE_BUILD_TYPE=Release \
@@ -158,18 +173,28 @@ RUN pip --verbose wheel -r requirements-mamba.txt \
 # image with vLLM installed
 FROM nvidia/cuda:${CUDA_VERSION}-base-ubuntu20.04 AS vllm-base
 ARG CUDA_VERSION=12.4.1
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3
 WORKDIR /vllm-workspace
 
+# START: Anyscale only
+ARG PYTHON_VERSION=3.9
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_USE_DEPRECATED=legacy-resolver
 RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && echo 'tzdata tzdata/Zones/America select Los_Angeles' | debconf-set-selections \
     && apt-get update -y \
     && apt-get install -y ccache software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update -y \
-    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv \
-    && if [ "${PYTHON_VERSION}" != "3" ]; then update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1; fi \
-    && python3 --version
+    && apt-get update -y \    
+    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv python3-pip \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 \
+    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
+    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
+    && python3 -m pip --version
+
+RUN apt-get update -y \
+    && apt-get install -y libgflags-dev libunwind-dev
+# END: Anyscale only
 
 RUN apt-get update -y \
     && apt-get install -y python3-pip git vim curl libibverbs-dev
@@ -194,7 +219,7 @@ RUN --mount=type=bind,from=mamba-builder,src=/usr/src/mamba,target=/usr/src/mamb
     python3 -m pip install /usr/src/mamba/*.whl --no-cache-dir
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.1.3/flashinfer-0.1.3+cu121torch2.4-cp310-cp310-linux_x86_64.whl
+    python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.1.3/flashinfer-0.1.3+cu121torch2.4-cp39-cp39-linux_x86_64.whl
 #################### vLLM installation IMAGE ####################
 
 
@@ -208,6 +233,14 @@ ADD . /vllm-workspace/
 # install development dependencies (for testing)
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r requirements-dev.txt
+
+# START: Anyscale-only 
+COPY .buildkite/ci/hf_login.py .buildkite/ci/hf_login.py
+COPY .buildkite/ci/install_anyguide.sh .buildkite/ci/install_anyguide.sh
+RUN --mount=type=cache,target=/root/.cache/pip \
+    AVIARY_ENV_AWS_SECRET_NAME=huggingface_token python3 .buildkite/ci/hf_login.py \
+    && VLLM_INSTALL_PUNICA_KERNELS=1 bash .buildkite/ci/install_anyguide.sh
+# END: Anyscale-only
 
 # doc requires source code
 # we hide them inside `test_docs/` , so that this source code
