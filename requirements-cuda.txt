@@ -1,5 +1,6 @@
 # Common dependencies
 -r requirements-common.txt
+-r requirements-anyscale.txt
 
 # Dependencies for NVIDIA GPUs
 ray >= 2.9

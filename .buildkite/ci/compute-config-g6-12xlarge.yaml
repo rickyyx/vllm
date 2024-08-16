@@ -1,0 +1,21 @@
+cloud: aviary-prod
+region: us-west-2
+head_node_type:
+  name: head-node-g6
+  instance_type: g6.12xlarge
+  resources:
+    cpu:
+    gpu:
+    memory:
+    object_store_memory:
+    custom_resources:
+      head_node: 1
+      accelerator_type_l4: 1
+  aws_advanced_configurations_json:
+    TagSpecifications:
+      - ResourceType: instance
+        Tags:
+          - Key: as-feature-customized-alternates
+            Value: $g6.12xlarge,$g6.24xlarge
+worker_node_types: []
+maximum_uptime_minutes: 225

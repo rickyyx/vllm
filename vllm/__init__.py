@@ -34,3 +34,5 @@ __all__ = [
     "initialize_ray_cluster",
     "PoolingParams",
 ]
+
+__is_anyscale_oss_fork__ = True
