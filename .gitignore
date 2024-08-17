@@ -189,6 +189,7 @@ _build/
 hip_compat.h
 
 # Benchmark dataset
+benchmarks/*.json
 *.json
 
 # Anyscale proprietary
