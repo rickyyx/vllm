@@ -6,9 +6,11 @@ on:
   push:
     branches:
       - main
+      - new-main
   pull_request:
     branches:
       - main
+      - new-main
 
 jobs:
   clang-format:

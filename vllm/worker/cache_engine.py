@@ -9,6 +9,8 @@ from vllm.logger import init_logger
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, get_dtype_size,
                         is_pin_memory_available)
 
+from vllm.anyscale.anyscale_envs import USE_SCRATCH
+
 logger = init_logger(__name__)
 
 
@@ -73,6 +75,10 @@ class CacheEngine:
         device: str,
     ) -> List[torch.Tensor]:
         """Allocates KV cache on the specified device."""
+        # TODO(sang): It is a hack until paged attn is supported by scratch.
+        if USE_SCRATCH:
+            return []
+
         kv_cache_shape = self.attn_backend.get_kv_cache_shape(
             num_blocks, self.block_size, self.num_kv_heads, self.head_size)
         pin_memory = is_pin_memory_available() if device == "cpu" else False

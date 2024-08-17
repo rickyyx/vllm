@@ -1,0 +1,75 @@
+steps:
+  - label: ":running: oss unit test"
+    timeout: 7200
+    env:
+      # Need VLLM_INSTALL_PUNICA_KERNELS=1 to build punica kernel which is used for lora tests.
+      COMMAND: "python3 .buildkite/ci/hf_login.py && VLLM_INSTALL_PUNICA_KERNELS=1 bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_unit_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-16xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
+  - label: ":running: proprietary unit test"
+    timeout: 7200
+    env:
+      COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_anyscale_unit_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
+  - label: ":running: scratchLLM+vLLM integration unit test"
+    timeout: 7200
+    env:
+      COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_scratch_unit_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-2xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
+  - label: ":running: oss distributed test"
+    timeout: 3600
+    env:
+      COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_distributed_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g6-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
+  - label: ":running: anyscale distributed test"
+    timeout: 3600
+    env:
+      COMMAND: "python3 .buildkite/ci/hf_login.py && bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_anyscale_distributed_test.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
+
+  - label: ":python: build wheel"
+    timeout: 1800
+    key: "build_wheel"
+    env:
+      COMMAND: "bash .buildkite/ci/build_wheel.sh 3.9 12.1"
+      COMPUTE_CONFIG: .buildkite/ci/compute-config-m5-8xlarge.yaml
+      IMAGE: anyscale/ray:2.8.0-py39-cu121
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    retry:
+      automatic:
+        - exit_status: -1 # Agent lost/spot preemption
+          limit: 2
