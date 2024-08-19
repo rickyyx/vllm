@@ -190,7 +190,3 @@ hip_compat.h
 
 # Benchmark dataset
 benchmarks/*.json
-*.json
-
-# Anyscale proprietary
-.buildkite/ci/anyscale/
