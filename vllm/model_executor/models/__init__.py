@@ -233,6 +233,10 @@ class ScratchModelRegistry:
         return False
 
     @staticmethod
+    def is_multimodal_model(model_arch: str) -> bool:
+        return False
+
+    @staticmethod
     def resolve_model_cls(
             architectures: List[str]) -> Tuple[Type[nn.Module], str]:
         for arch in ScratchModelRegistry.get_supported_archs():
