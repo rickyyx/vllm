@@ -82,6 +82,8 @@ class RequestOutput:
         finished: Whether the whole request is finished.
         metrics: Metrics associated with the request.
         lora_request: The LoRA request that was used to generate the output.
+        error: The error exception if the sequence has errored during
+            generation.
         encoder_prompt: The encoder prompt string of the request; 
                         None if decoder-only
         encoder_prompt_token_ids: The token IDs of the encoder prompt;
@@ -98,6 +100,7 @@ class RequestOutput:
         finished: bool,
         metrics: Optional[RequestMetrics] = None,
         lora_request: Optional[LoRARequest] = None,
+        error: Optional[BaseException] = None,
         encoder_prompt: Optional[str] = None,
         encoder_prompt_token_ids: Optional[List[int]] = None,
     ) -> None:
@@ -109,11 +112,15 @@ class RequestOutput:
         self.finished = finished
         self.metrics = metrics
         self.lora_request = lora_request
+        self.error = error
         self.encoder_prompt = encoder_prompt
         self.encoder_prompt_token_ids = encoder_prompt_token_ids
 
     @classmethod
-    def from_seq_group(cls, seq_group: SequenceGroup) -> "RequestOutput":
+    def from_seq_group(
+            cls,
+            seq_group: SequenceGroup,
+            error: Optional[BaseException] = None) -> "RequestOutput":
         if seq_group.sampling_params is None:
             raise ValueError(
                 "Sampling parameters are missing for a CompletionRequest.")
@@ -165,6 +172,7 @@ class RequestOutput:
                    finished,
                    seq_group.metrics,
                    lora_request=seq_group.lora_request,
+                   error=error,
                    encoder_prompt=encoder_prompt,
                    encoder_prompt_token_ids=encoder_prompt_token_ids)
 
@@ -178,7 +186,8 @@ class RequestOutput:
                 f"outputs={self.outputs}, "
                 f"finished={self.finished}, "
                 f"metrics={self.metrics}, "
-                f"lora_request={self.lora_request})")
+                f"lora_request={self.lora_request},"
+                f"error={self.error})")
 
 
 class EmbeddingRequestOutput:
@@ -230,10 +239,10 @@ class EmbeddingRequestOutput:
 class RequestOutputFactory:
 
     @staticmethod
-    def create(seq_group):
+    def create(seq_group, error: Optional[BaseException] = None):
         # Determine the type based on a condition, for example:
         if hasattr(seq_group,
                    'embeddings') and seq_group.embeddings is not None:
             return EmbeddingRequestOutput.from_seq_group(seq_group)
         else:
-            return RequestOutput.from_seq_group(seq_group)
+            return RequestOutput.from_seq_group(seq_group, error=error)

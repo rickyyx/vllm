@@ -1,0 +1,74 @@
+steps:
+  - block: ":rocket: run perf test?"
+    prompt: "Do you want to run perf test?"
+    if: build.pull_request.id != null # Block on PRs.
+
+  - label: ":running: p4de a100 perf test with llmval"
+    timeout: 3600
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && \
+        bash .buildkite/ci/run_perf_test_llmval_a100.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-p4de-24xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    artifact_paths:
+      - /tmp/llmval-deps/results/* # Sync with benchmark_llmval.sh
+
+  - label: ":running: g5 a10g perf test with llmval"
+    timeout: 2400
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && \
+      bash .buildkite/ci/run_perf_test_llmval_a10g.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+    artifact_paths:
+      - /tmp/llmval-deps/results/*
+
+
+  - label: ":running: g5 a10g perf test"
+    timeout: 1800
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && \
+      bash .buildkite/ci/run_perf_test_a10g.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+  
+  - label: ":running: a10g latency tests w/ profiling"
+    timeout: 1800
+    env: 
+      COMMAND: "bash .buildkite/ci/build_editable.sh && bash .buildkite/ci/run_latency_perf_test_a10g.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh --download-s3-artifacts
+    artifact_paths:
+      - result/*
+  
+  - label: ":running: a10g perf test lightllm"
+    timeout: 1800
+    env:
+      COMMAND: "bash .buildkite/ci/run_lightllm_perf_test_a10g.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+
+  - label: ":running: a10g perf test openppl"
+    timeout: 3600
+    env:
+      COMMAND: "bash .buildkite/ci/run_openppl_perf_test_a10g.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-g5-12xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh
+
+  - wait: ~
+    continue_on_failure: true
+
+  - label: ":running: p4de a100 perf test"
+    timeout: 1800
+    env:
+      COMMAND: "bash .buildkite/ci/build_editable.sh && \
+        bash .buildkite/ci/run_perf_test_a100.sh"
+      COMPUTE_CONFIG: ".buildkite/ci/compute-config-p4de-24xlarge.yaml"
+    commands:
+      - bash .buildkite/job_submit_buildkite.sh

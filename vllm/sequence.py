@@ -60,6 +60,9 @@ class SequenceStatus(enum.IntEnum):
     FINISHED_LENGTH_CAPPED = 4
     FINISHED_ABORTED = 5
     FINISHED_IGNORED = 6
+    # Anyscale start
+    FINISHED_INTERNAL_ERROR = enum.auto()
+    # Anyscale end
 
     @staticmethod
     def is_finished(status: "SequenceStatus") -> bool:
@@ -73,6 +76,10 @@ class SequenceStatus(enum.IntEnum):
             finish_reason = "length"
         elif status == SequenceStatus.FINISHED_ABORTED:
             finish_reason = "abort"
+        # Anyscale start
+        elif status == SequenceStatus.FINISHED_INTERNAL_ERROR:
+            finish_reason = "internal_error"
+        # Anyscale end
         elif status == SequenceStatus.FINISHED_IGNORED:
             # The ignored sequences are the sequences whose prompt lengths
             # are longer than the model's length cap. Therefore, the stop
@@ -548,6 +555,12 @@ class Sequence:
     def is_prefill(self) -> bool:
         return self.data.stage == SequenceStage.PREFILL
 
+    # Anyscale start
+    def set_status_to_failed(self) -> None:
+        self.status = SequenceStatus.FINISHED_INTERNAL_ERROR
+
+    # Anyscale end
+
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "
                 f"status={self.status.name}, "
@@ -820,6 +833,18 @@ class SequenceGroup:
         # Every sequence should be in the same stage.
         return self.seqs[0].is_prefill()
 
+    # Anyscale start
+    def set_status_to_failed(self) -> None:
+        for seq in self.get_seqs():
+            if not seq.is_finished():
+                seq.set_status_to_failed()
+
+    def has_failed_seqs(self) -> bool:
+        return any(seq.status == SequenceStatus.FINISHED_INTERNAL_ERROR
+                   for seq in self.get_seqs())
+
+    # Anyscale end
+
     def __repr__(self) -> str:
         return (f"SequenceGroup(request_id={self.request_id}, "
                 f"sampling_params={self.sampling_params}, "
@@ -1000,6 +1025,20 @@ class CompletionSequenceGroupOutput(
     # Prompt logprob for each prompt query token.
     prompt_logprobs: Optional[PromptLogprobs]
 
+    # Anyscale start
+    _success = True
+
+    # Anyscale end
+
+    # Anyscale start
+    def mark_sequence_group_failed(self):
+        self._success = False
+
+    def is_failed(self):
+        return not self._success
+
+    # Anyscale end
+
     def __repr__(self) -> str:
         return (f"CompletionSequenceGroupOutput(samples={self.samples}, "
                 f"prompt_logprobs={self.prompt_logprobs})")
@@ -1098,6 +1137,13 @@ class SamplerOutput(
     # Time taken in the model execute function. This will include model forward,
     # block/sync across workers, cpu-gpu sync time and sampling time.
     model_execute_time: Optional[float] = None
+
+    # Anyscale start
+    def mark_sequence_group_failed(self, failed_indices: List[int]):
+        for i in failed_indices:
+            self.outputs[i].mark_sequence_group_failed()
+
+    # Anyscale end
 
     def __getitem__(self, idx: int):
         return self.outputs[idx]

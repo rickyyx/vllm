@@ -1,3 +1,7 @@
+"""NOTE: This file is modified to include ScratchLLM .so to vllm wheels.
+"""
+
+import glob
 import importlib.util
 import io
 import logging
@@ -5,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import warnings
 from shutil import which
 from typing import Dict, List
@@ -450,6 +455,39 @@ def get_requirements() -> List[str]:
     return requirements
 
 
+# Anyscale start
+def build_scratch():
+    # Additionally build scratchLLM.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = str(temp_dir)
+        print("Build and install ScratchLLM.")
+        subprocess.check_call([
+            "sudo",
+            "chmod",
+            "o+rx",
+            ".buildkite/ci/build_scratch.sh",
+        ])
+        subprocess.check_call(
+            ["bash", ".buildkite/ci/build_scratch.sh", temp_dir_path])
+        print("Copy .so file to vllm folder.")
+        subprocess.check_call(["ls", f"{temp_dir_path}/scratchllm"])
+
+        scratch_so_files_pattern = os.path.join(f"{temp_dir_path}/scratchllm",
+                                                "scratch*.so")
+        scratch_so_files = glob.glob(scratch_so_files_pattern)
+        for shared_object_file in scratch_so_files:
+            print(f"Copying {shared_object_file} to vllm folder.")
+            subprocess.check_call([
+                "sudo",
+                "cp",
+                "-f",
+                shared_object_file,
+                os.path.join(ROOT_DIR, "vllm"),
+            ])
+
+
+# Anyscale end
+
 ext_modules = []
 
 if _build_core_ext():
@@ -457,6 +495,12 @@ if _build_core_ext():
 
 if _is_cuda() or _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
+    # Anyscale start
+    disable_scratch_build = bool(
+        int(os.environ.get("DISABLE_SCRATCH_BUILD", "0")))
+    if not disable_scratch_build:
+        build_scratch()
+    # Anyscale end
 
 if _build_custom_ops():
     ext_modules.append(CMakeExtension(name="vllm._C"))
@@ -464,6 +508,10 @@ if _build_custom_ops():
 package_data = {
     "vllm": ["py.typed", "model_executor/layers/fused_moe/configs/*.json"]
 }
+# Anyscale start
+package_data["vllm"].append("scratch*.so")
+# Anyscale end
+
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []
     package_data["vllm"].append("*.so")
@@ -509,4 +557,6 @@ setup(
             "vllm=vllm.scripts:main",
         ],
     },
+    data_files=[('lib', glob.glob('/usr/local/lib/*libglog.so*'))
+                ]  # Include libglog in the wheel for ScratchLLM unit tests
 )

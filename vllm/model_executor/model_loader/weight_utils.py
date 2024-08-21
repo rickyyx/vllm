@@ -66,7 +66,7 @@ def get_lock(model_name_or_path: str, cache_dir: Optional[str] = None):
     lock_file_name = hash_name + model_name + ".lock"
     # mode 0o666 is required for the filelock to be shared across users
     lock = filelock.FileLock(os.path.join(lock_dir, lock_file_name),
-                             mode=0o666)
+                             mode=0o666)  # type: ignore
     return lock
 
 

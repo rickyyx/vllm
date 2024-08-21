@@ -1,6 +1,6 @@
 """A layer that compute logits from hidden_stats."""
 import inspect
-from typing import Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -11,6 +11,11 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
     VocabParallelEmbedding)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.platforms import current_platform
+from vllm.sequence import SequenceGroupMetadata
+
+from vllm.anyscale import anyscale_envs
+from vllm.anyscale.constrained_decoding.json_mode_manager import (
+    JSONModeManager)
 
 
 class LogitsProcessor(nn.Module):
@@ -150,4 +155,139 @@ def _apply_logits_processors(
     if found_logits_processors:
         # verifies that no rows in logits were missed unexpectedly
         assert logits_processed == logits.shape[0]
+
     return logits
+
+
+# Anyscale start
+class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
+    """Logit processor that is used for json mode.
+
+    Compared to a normal guided decoding, json logit masks are
+    prepared "asynchronously" in a batch. Note that a normal logit processor
+    prepares mask "synchronously" row by row blocking.
+
+    TODO(sang): This class should be removed once we support batch logit
+    processor in OSS vLLM.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Mapping from buffer indicies to the batch indices that the
+        # corresponding buffer is responsible for. Since vLLM only allows 1
+        # batch at a time to be processed, it is set to None when logit masks
+        # are not prepared by `prepare`.
+        self._buffer_inds_to_batch_inds = None
+        # Lazily initialized.
+        self._json_mode_manager: Optional[JSONModeManager] = None
+
+        self._copy_stream: Optional[torch.cuda.Stream] = None
+
+    def initialize(self, tokenizer: str) -> None:
+        """Initialize the stateful logit processors.
+
+        Args:
+            tokenizer_name_or_path: The name or path of the tokenizer to use.
+        """
+        if self._json_mode_manager is not None:
+            return
+
+        self._json_mode_manager = JSONModeManager(
+            tokenizer,
+            self.vocab_size,
+            recreate_failed_actors=anyscale_envs.RECREATE_FAILED_ACTORS,
+            max_restarts=anyscale_envs.MAX_RESTARTS,
+            delay_between_actor_restarts_s=anyscale_envs.
+            DELAY_BETWEEN_ACTOR_RESTARTS_S,
+            logit_processor_cls=anyscale_envs.LOGIT_PROCESSOR_CLS,
+            use_v2=anyscale_envs.USE_V2,
+            json_processor_num_workers=anyscale_envs.NUM_PROCESSOR_WORKERS,
+        )
+
+        self._copy_stream = torch.cuda.Stream()
+
+    def prepare(self,
+                seq_gruop_metadata_list: List[SequenceGroupMetadata]) -> None:
+        """Prepare logit masks by start JSON processors by sending them
+            new data. Non-blocking.
+
+        This method submits the batch items that need to be logit processed in
+        a non-blocking fashion. It also sets the batch indices mapping so
+        that we can recover the processed logits and assign them back to the
+        item indices.
+
+        Args:
+            seq_gruop_metadata_list: A list of sequence group metadata to
+                prepare logit masks for json mode. 
+        """
+        assert self._json_mode_manager is not None
+        self._buffer_inds_to_batch_inds = (
+            self._json_mode_manager.start_json_logits_processors(
+                seq_gruop_metadata_list))
+
+    def _apply_json_logits_processor(
+        self,
+        logits: torch.Tensor,
+    ) -> Optional[List[bool]]:
+        """Apply the JSON processor mask to logits in-place.
+
+        `prepare` has to be called before this API used. After this API
+        is called the state prepared from `prepared` it reset.
+
+        Args:
+            logits: The logits tensor to apply the mask to.
+                This tensor will be modified in-place.
+
+        Returns:
+            A list of bools indicating which sequences finished successfully.
+        """
+        assert (self._json_mode_manager is not None or self._copy_stream
+                is not None), (".initialize should have been called already, "
+                               "Did you forget it?")
+        # `prepare` has to be called before forward is called.
+        assert self._buffer_inds_to_batch_inds is not None, (
+            ".prepare(..) should have been called, Did you forget it?")
+
+        with torch.cuda.stream(self._copy_stream):
+            json_bias, json_mask_success = (
+                self._json_mode_manager.get_json_logits_bias(  # type: ignore
+                    logits, self._buffer_inds_to_batch_inds))
+        torch.cuda.current_stream().wait_stream(self._copy_stream)
+
+        logits.add_(json_bias)
+        self._buffer_inds_to_batch_inds = None
+
+        return json_mask_success
+
+    def forward(
+        self,
+        embedding: torch.Tensor,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+        embedding_bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Compute logits and apply the json logit processor.
+
+        `prepare` has to be called before `forward` is called. And `prepare`
+        and `forward` should be called 1:1. Otherwise, it will have assertion
+        failure.
+        """
+        logits = super().forward(
+            embedding,
+            hidden_states,
+            sampling_metadata,
+            embedding_bias,
+        )
+
+        # Non-driver worker can return None for logits.
+        if logits is None:
+            return logits, None
+
+        json_mask_success = self._apply_json_logits_processor(logits)
+
+        return logits, json_mask_success
+
+
+if anyscale_envs.ENABLE_JSON_MODE:
+    LogitsProcessor = JsonModeAsyncBatchLogitProcessor  # type: ignore
+# Anyscale end
