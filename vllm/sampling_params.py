@@ -185,6 +185,7 @@ class SamplingParams(
         logits_processors: Optional[List[LogitsProcessor]] = None,
         truncate_prompt_tokens: Optional[Annotated[int,
                                                    msgspec.Meta(ge=1)]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> "SamplingParams":
         return SamplingParams(
             n=1 if n is None else n,
@@ -216,6 +217,7 @@ class SamplingParams(
             spaces_between_special_tokens=spaces_between_special_tokens,
             logits_processors=logits_processors,
             truncate_prompt_tokens=truncate_prompt_tokens,
+            response_format=response_format,
         )
 
     def __post_init__(self) -> None:
