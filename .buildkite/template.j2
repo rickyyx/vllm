@@ -9,7 +9,7 @@ steps:
       queue: vllm-cpu
     commands:
       - "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 830883877497.dkr.ecr.us-west-2.amazonaws.com"
-      - "docker build --build-arg max_jobs=16 --build-arg buildkite_commit=$BUILDKITE_COMMIT --build-arg USE_SCCACHE=1 --build-arg PYTHON_VERSION=3.9 --tag {{ docker_image }} --target test --progress plain ."
+      - "docker build --build-arg max_jobs=16 --build-arg buildkite_commit=$BUILDKITE_COMMIT --build-arg USE_SCCACHE=1 --build-arg SCCACHE_BUCKET_NAME=anyscale-vllm-sccache --build-arg PYTHON_VERSION=3.9 --tag {{ docker_image }} --target test --progress plain ."
       - "docker push {{ docker_image }}"
     env:
       DOCKER_BUILDKIT: "1"
