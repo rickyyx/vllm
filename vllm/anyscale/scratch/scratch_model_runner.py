@@ -1,16 +1,12 @@
 # yapf: disable
 
 import dataclasses
-import importlib.util
-import sys
-from pathlib import Path
+import subprocess
 from typing import (TYPE_CHECKING, Any, Dict, List, Optional, Set, Type,
                     TypeVar, Union)
 
-import boto3
 import torch
 import torch.nn as nn
-from tqdm import tqdm
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, MultiModalConfig, ObservabilityConfig,
@@ -19,11 +15,12 @@ from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import SamplingMetadata
-from vllm.model_executor.model_loader import get_model
+from vllm.model_executor.layers.logits_processor import LogitsProcessor
+from vllm.model_executor.layers.sampler import Sampler
 from vllm.sequence import (CompletionSequenceGroupOutput, IntermediateTensors,
                            Logprob, SamplerOutput, SequenceGroupMetadata,
                            SequenceOutput)
-from vllm.utils import CudaMemoryProfiler, is_pin_memory_available
+from vllm.utils import is_pin_memory_available
 from vllm.worker.model_runner_base import ModelRunnerBase, ModelRunnerInputBase
 
 if TYPE_CHECKING:
@@ -31,22 +28,16 @@ if TYPE_CHECKING:
 
 from vllm.anyscale.anyscale_envs import USE_SCRATCH, USE_SCRATCH_SAMPLE
 from vllm.anyscale.scratch.constants import SCRATCH_WEIGHTS_BUCKET_NAME
-from vllm.anyscale.scratch.selector import (get_scratch_executable_path,
+from vllm.anyscale.scratch.selector import (get_scratch_dtype,
+                                            get_scratch_hardware,
                                             get_scratch_tmp_dir,
                                             get_scratch_weights_uri)
 
+if USE_SCRATCH:
+    import scratchllm
+
 logger = init_logger(__name__)
 
-
-def import_scratch(path: Path):
-    SCRATCH_MODULE_NAME = "scratch"
-    logger.info("Importing scratch module from %s", path)
-    spec = importlib.util.spec_from_file_location(SCRATCH_MODULE_NAME,
-                                                  path.resolve())
-    scratch = importlib.util.module_from_spec(spec)
-    sys.modules[SCRATCH_MODULE_NAME] = scratch
-    spec.loader.exec_module(scratch)
-    return scratch
 
 
 class ScratchSession:
@@ -66,7 +57,7 @@ class ScratchSessionManager:
         # request_id -> session_id (Scratch session ID).
         self._session_cache: Dict[str, ScratchSession] = {}
 
-    def get_or_create_session(self, vllm_request_id: int) -> ScratchSession:
+    def get_or_create_session(self, vllm_request_id: str) -> ScratchSession:
         if vllm_request_id in self._session_cache:
             return self._session_cache[vllm_request_id]
         # Session id is guaranteed to be unique from scratch.
@@ -144,6 +135,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         self.device_config = (device_config
                               if device_config is not None else DeviceConfig())
         self.device = self.device_config.device
+        self.model_dtype = self.model_config.dtype
         self.lora_manager = None
         self.model_config.enforce_eager = True
         self.kv_cache_dtype = kv_cache_dtype
@@ -162,9 +154,10 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         # TODO(sang): We will need better config validation than this.
         # Ideally, we should choose a subset of config supported by
         # scratch from config.py or arg_utils.py.
+        assert self.device.type == "cuda", "Scratch only supports CUDA"
         assert self.is_driver_worker, ("TP > 1 not supported.")
-        assert self.model_config.dtype == torch.half, (
-            "Only half type is allowed.")
+        assert self.model_config.dtype in [torch.half, torch.bfloat16], (
+            "Only half type are allowed.")
         assert self.scheduler_config.chunked_prefill_enabled is False, (
             "Chunked prefill is not supported by ScratchLLM")
         assert self.sliding_window is None, ("Sliding window not supported")
@@ -185,78 +178,72 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         assert self.load_config.download_dir is None
         tmp_dir = get_scratch_tmp_dir(self.model_config.model.lower())
         tmp_dir.mkdir(exist_ok=True, parents=True)
+        # Also normalize the model name to lowercase, and make it a valid file
+        # name (no directory)
         weights_dir = tmp_dir / "parameters"
-        weights_dir.mkdir(exist_ok=True)
-        # TODO(sang): Need to obtain this programmatically.
-        # download_dir = weights_dir / "ll27b-s1-cuda-f16-fullopt"
-        base_dir = str(weights_dir.resolve())
-        scratch_mod = import_scratch(
-            Path(get_scratch_executable_path(self.model_config.model.lower())))
-        self.scratch = scratch_mod.ScratchAPI(base_dir)
-        logger.info("Scratch API loaded at %s", base_dir)
-        scratch_subdir = self.scratch.get_param_subdir()
-        download_dir = weights_dir / scratch_subdir
-        download_dir.mkdir(exist_ok=True)
-        download_dir_path = str(download_dir.absolute())
+        weights_dir.mkdir(exist_ok=True, parents=True)
+
+        scratch_dtype = get_scratch_dtype(self.model_dtype)
+        scratch_hardware = get_scratch_hardware()
+        self.scratch = scratchllm.ScratchAPI(
+            parm_dir=str(weights_dir.absolute()),
+            model_id=self.model_config.model,
+            dtype=scratch_dtype,
+            hardware=scratch_hardware,
+            use_logits=True
+        )
+        logger.info("Scratch API loaded for model=%s, dtype=%s",
+                    self.model_config.model, self.model_dtype)
+        download_dir_path = str(weights_dir.absolute())
         self.load_config.download_dir = str(weights_dir.absolute())
         self._download_scratch_weights(
-            get_scratch_weights_uri(self.model_config.model.lower()),
-            download_dir_path, SCRATCH_WEIGHTS_BUCKET_NAME)
+            get_scratch_weights_uri(self.model_config.model,
+                                    self.model_dtype),
+            download_dir_path,
+            SCRATCH_WEIGHTS_BUCKET_NAME
+        )
 
-        with CudaMemoryProfiler() as m:
-            self.model = get_model(
-                model_config=self.model_config,
-                device_config=self.device_config,
-                load_config=self.load_config,
-                lora_config=self.lora_config,
-                parallel_config=self.parallel_config,
-                scheduler_config=self.scheduler_config,
-                cache_config=self.cache_config,
-            )
-            self.scratch.start()
-            self._scratch_session_manager = ScratchSessionManager(
-                self.scratch, self.scheduler_config.max_num_seqs)
+        self.logits_processor = LogitsProcessor(
+            self.model_config.get_vocab_size(),
+            self.model_config.get_vocab_size(),
+            1.0
+        )
+        self.sampler = Sampler()
 
-        self.model_memory_usage = m.consumed_memory
+        # Check CUDA memory usage
+        assert self.device.type == "cuda", "Scratch only supports CUDA"
+        free_mem, _ = torch.cuda.mem_get_info()
+        self.scratch.start()
+        free_mem_after_scratch, _ = torch.cuda.mem_get_info()
+        self.model_memory_usage = free_mem - free_mem_after_scratch
         logger.info("Loading model weights took %.4f GB",
                     self.model_memory_usage / float(2**30))
+
+        scratch_config = self.scratch.get_config()
+        logger.info("Scratch config: %s", scratch_config)
+
+        assert scratch_config.max_concurrent_sessions > 0, (
+            "max_concurrent_sessions must be greater than 0")
+
+        logger.warning("Setting max_num_seqs to %s "
+                       "due to scratch max heap size limitation.",
+                       scratch_config.max_concurrent_sessions)
+        self.scheduler_config.max_num_seqs = (
+            scratch_config.max_concurrent_sessions
+        )
+        self._scratch_session_manager = ScratchSessionManager(
+            self.scratch, self.scheduler_config.max_num_seqs)
 
         # KV cache dtype/quantization is not supported.
 
     def _download_scratch_weights(self, prefix: str, target_dir: str,
                                   bucket: str):
-        # TODO(sang): Use fast loading.
-        s3_client = boto3.client('s3')
-        files: List[str] = []
-        dirs: List[str] = []
-        next_token = ""
-        base_kwargs = {"Bucket": bucket, "Prefix": prefix}
-        while next_token is not None:
-            kwargs = base_kwargs.copy()
-            if next_token != "":
-                kwargs.update({"ContinuationToken": next_token})
-            results = s3_client.list_objects_v2(**kwargs)
-            contents = results.get("Contents")
-            for content in contents:
-                k = content.get("Key")
-                if k[-1] != "/":
-                    files.append(k)
-                else:
-                    dirs.append(k)
-            next_token = results.get('NextContinuationToken')
-        # Assume there's no subdirectories.
-        dirs = {p.rsplit("/", 1)[0] for p in files}
-        assert len(dirs) == 1, dirs
-
-        # NOTE(sang): Versioning is not supported now. We assume the
-        # weights are always the same.
-        # NOTE: Threadpool doesn't really improve performance.
-        # Maybe it is rate limited.
-        for file in tqdm(files,
-                         desc=f"Downloading scratch weights to {target_dir}"):
-            dest = Path(target_dir) / Path(file).name
-            if not dest.exists():
-                s3_client.download_file(bucket, file, str(dest.absolute()))
+        # TODO(rickyx): Use fast loading directly.
+        s3_uri = f"s3://{prefix}"
+        logger.info("Downloading scratch weights from %s to %s",
+                    s3_uri, target_dir)
+        subprocess.run(["aws", "s3", "sync", s3_uri, target_dir,
+                        "--no-sign-request"], check=True)
 
     def prepare_model_input(
         self,
@@ -362,7 +349,7 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
         query_lens: List[int],
         sampling_metadata: SamplingMetadata,
     ):
-        """Run scratchLLM kernels with vLLM logit processor + sampler.
+        """Run scratchLLM kernels with vLLM sampler.
 
         Args:
             prefill_session_ids: A list of session ids for prefill
@@ -383,10 +370,10 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
             assert len(prefill_session_ids) == 0
 
         batch_size = len(prefill_session_ids) + len(decode_session_ids)
-        hidden_size = self.model_config.get_hidden_size()
+        hidden_size = self.model_config.get_vocab_size()
         hidden_states = torch.empty(len(input_tokens) * hidden_size,
                                     device=self.device,
-                                    dtype=torch.half)
+                                    dtype=self.model_dtype)
         input_tokens_tensor = torch.tensor(input_tokens,
                                            device=self.device,
                                            dtype=torch.int)
@@ -423,18 +410,12 @@ class ScratchModelRunner(ModelRunnerBase[ModelInputForScratch]):
                 hidden_states.data_ptr(),
             )
 
-        hidden_states = hidden_states.view(-1,
-                                           self.model_config.get_hidden_size())
-        # Scratch doesn't apply rms norm in its output, so we should do it
-        # ourselves. Residual is set to None because it is already added
-        # from Scratch output.
-        hidden_states = self.model.norm(hidden_states, None)
-        logits = self.model.compute_logits(hidden_states, sampling_metadata)
-        output = self.model.sample(
-            logits=logits,
-            sampling_metadata=sampling_metadata,
-        )
-        return output
+        hidden_states = hidden_states.view(-1, hidden_size)
+        logits = hidden_states  # Scratch returns logits.
+        logits = self.logits_processor(lm_head=None, hidden_states=logits,
+                                       sampling_metadata=sampling_metadata)
+        return self.sampler(logits=logits, sampling_metadata=sampling_metadata)
+
 
     def _execute_and_scratch_sample(
         self,

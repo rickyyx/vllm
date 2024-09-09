@@ -1,7 +1,6 @@
 from typing import List
 
 import pytest
-import ray
 import torch
 
 from vllm import SamplingParams
@@ -37,17 +36,13 @@ def test_get_prompt_logprobs(
     rtol = 0.2
     max_tokens = 5
 
-    # Temporary workaround to fix Scratch issue.
-    @ray.remote(num_gpus=1)
-    def f():
-        with hf_runner(model, dtype=dtype) as hf_model:
-            hf_logprobs = hf_model.generate_greedy_logprobs(
-                example_prompts,
-                max_tokens=max_tokens,
-            )
-            return hf_logprobs
+    with hf_runner(model, dtype=dtype) as hf_model:
+        hf_logprobs = hf_model.generate_greedy_logprobs(
+            example_prompts,
+            max_tokens=max_tokens,
+        )
 
-    hf_logprobs = ray.get(f.remote())
+    del hf_model
 
     with vllm_runner(
             model,

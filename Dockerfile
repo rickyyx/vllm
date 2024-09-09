@@ -94,7 +94,6 @@ COPY requirements-cuda.txt requirements-cuda.txt
 COPY pyproject.toml pyproject.toml
 COPY vllm vllm
 # START: Anyscale only
-COPY .buildkite/ci/build_scratch.sh .buildkite/ci/build_scratch.sh
 COPY .buildkite/ci/install_scratch_dependencies.sh .buildkite/ci/install_scratch_dependencies.sh
 RUN bash .buildkite/ci/install_scratch_dependencies.sh
 # END: Anyscale only
@@ -193,7 +192,7 @@ RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && python3 -m pip --version
 
 RUN apt-get update -y \
-    && apt-get install -y libgflags-dev libunwind-dev
+    && apt-get install -y libunwind-dev 
 # END: Anyscale only
 
 RUN apt-get update -y \
@@ -220,6 +219,7 @@ RUN --mount=type=bind,from=mamba-builder,src=/usr/src/mamba,target=/usr/src/mamb
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.1.4/flashinfer-0.1.4+cu121torch2.4-cp39-cp39-linux_x86_64.whl
+
 #################### vLLM installation IMAGE ####################
 
 
@@ -240,6 +240,9 @@ COPY .buildkite/ci/install_anyguide.sh .buildkite/ci/install_anyguide.sh
 RUN --mount=type=cache,target=/root/.cache/pip \
     AVIARY_ENV_AWS_SECRET_NAME=huggingface_token python3 .buildkite/ci/hf_login.py \
     && VLLM_INSTALL_PUNICA_KERNELS=1 bash .buildkite/ci/install_anyguide.sh
+COPY .buildkite/ci/install_scratch.sh .buildkite/ci/install_scratch.sh
+RUN --mount=type=cache,target=/root/.cache/pip \
+    bash .buildkite/ci/install_scratch.sh
 # END: Anyscale-only
 
 # doc requires source code

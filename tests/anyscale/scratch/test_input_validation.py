@@ -36,19 +36,6 @@ def test_models(
             dtype=dtype,
             block_size=16,
         )
-    with pytest.raises(AssertionError, match="Only half type is allowed"):
-        vllm_model = vllm_runner(
-            model,
-            dtype="bfloat16",
-            block_size=32,
-        )
-    # The default dtype of llama 3 is bfloat16, so this fails.
-    with pytest.raises(AssertionError, match="Only half type is allowed"):
-        vllm_model = vllm_runner(
-            model,
-            dtype="auto",
-            block_size=32,
-        )
     with pytest.raises(ValueError, match="is not supported by ScratchLLM"):
         vllm_model = vllm_runner(
             model,

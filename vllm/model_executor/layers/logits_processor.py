@@ -288,6 +288,30 @@ class JsonModeAsyncBatchLogitProcessor(LogitsProcessor):
         return logits, json_mask_success
 
 
+class ScratchLogitProcessor(LogitsProcessor):
+    """Scratch logit processor that merely prunes hidden states and applies
+    any logit processors.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def forward(
+        self,
+        lm_head: VocabParallelEmbedding,
+        hidden_states: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+        embedding_bias: Optional[torch.Tensor] = None,
+    ) -> Optional[torch.Tensor]:
+        logits = _prune_hidden_states(hidden_states, sampling_metadata)
+        logits = _apply_logits_processors(logits, sampling_metadata)
+        return logits
+
+
 if anyscale_envs.ENABLE_JSON_MODE:
     LogitsProcessor = JsonModeAsyncBatchLogitProcessor  # type: ignore
+
+if anyscale_envs.USE_SCRATCH:
+    assert not anyscale_envs.ENABLE_JSON_MODE
+    LogitsProcessor = ScratchLogitProcessor  # type: ignore
 # Anyscale end
