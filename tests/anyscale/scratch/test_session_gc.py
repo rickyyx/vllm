@@ -34,6 +34,7 @@ def test_session_gc(
         dtype=dtype,
         block_size=32,
         max_num_seqs=batch_size,
+        disable_async_output_proc=True,
     )
 
     worker = vllm_model.model.llm_engine.model_executor.driver_worker

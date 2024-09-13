@@ -65,8 +65,13 @@ def test_models(
         hf_outputs = hf_model.generate_greedy_logprobs_limit(
             example_prompts, max_tokens, num_logprobs)
 
-    with vllm_runner(model, dtype=dtype, block_size=32,
-                     max_num_seqs=1) as vllm_model:
+    with vllm_runner(
+            model,
+            dtype=dtype,
+            block_size=32,
+            disable_async_output_proc=True,
+            max_num_seqs=1,
+    ) as vllm_model:
         vllm_outputs = vllm_model.generate_greedy_logprobs(
             example_prompts, max_tokens, num_logprobs)
     check_logprobs_close(
