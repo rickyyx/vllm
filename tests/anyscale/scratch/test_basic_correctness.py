@@ -33,11 +33,10 @@ def test_models(
     hf_outputs = hf_model.generate_greedy(example_prompts, max_tokens)
     del hf_model
 
-    vllm_model = vllm_runner(
-        model,
-        dtype=dtype,
-        block_size=32,
-    )
+    vllm_model = vllm_runner(model,
+                             dtype=dtype,
+                             block_size=32,
+                             disable_async_output_proc=True)
     vllm_outputs = vllm_model.generate_greedy(example_prompts, max_tokens)
     del vllm_model
 

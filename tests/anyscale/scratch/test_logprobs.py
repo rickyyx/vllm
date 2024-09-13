@@ -49,6 +49,7 @@ def test_get_prompt_logprobs(
             dtype=dtype,
             max_logprobs=num_top_logprobs,
             block_size=32,
+            disable_async_output_proc=True,
     ) as vllm_model:
         vllm_sampling_params = SamplingParams(max_tokens=max_tokens,
                                               logprobs=num_top_logprobs,

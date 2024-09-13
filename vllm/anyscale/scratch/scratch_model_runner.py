@@ -2,8 +2,8 @@
 
 import dataclasses
 import subprocess
-from typing import (TYPE_CHECKING, Any, Dict, List, Optional, Set, Type,
-                    TypeVar, Union)
+from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set,
+                    Type, TypeVar, Union)
 
 import torch
 import torch.nn as nn
@@ -85,6 +85,7 @@ class ModelInputForScratch(ModelRunnerInputBase):
     query_lens: List[int]
     seq_lens: List[int]
     sampling_metadata: SamplingMetadata
+    output_proc_callback_fn: Optional[Callable] = None
 
     def as_broadcastable_tensor_dict(self) -> Dict[str, Any]:
         raise NotImplementedError("TP>1 is not supported")

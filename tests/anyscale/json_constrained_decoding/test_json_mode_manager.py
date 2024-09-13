@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+from array import array
 from typing import List, Literal
 from unittest.mock import patch
 
@@ -13,7 +14,8 @@ from tests.anyscale.json_constrained_decoding.utils import (
 from vllm.engine.arg_utils import AsyncEngineArgs, EngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.llm_engine import LLMEngine
-from vllm.sequence import SamplingParams, SequenceData, SequenceGroupMetadata
+from vllm.sequence import (VLLM_TOKEN_ID_ARRAY_TYPE, SamplingParams,
+                           SequenceData, SequenceGroupMetadata)
 from vllm.transformers_utils.tokenizer import get_tokenizer
 
 from vllm.anyscale.constrained_decoding.json_mode_manager import (
@@ -106,7 +108,12 @@ def create_seq_group_metadata_list(model_id: str,
                 request_id=f"test_{i}",
                 is_prompt=True,
                 seq_data={
-                    0: SequenceData(prompt_ids, output_token_ids=output_ids)
+                    0:
+                    SequenceData(
+                        array(VLLM_TOKEN_ID_ARRAY_TYPE, prompt_ids),
+                        _output_token_ids=array(VLLM_TOKEN_ID_ARRAY_TYPE,
+                                                output_ids),
+                    )
                 },
                 sampling_params=sampling_param,
                 block_tables={0: [1]},
