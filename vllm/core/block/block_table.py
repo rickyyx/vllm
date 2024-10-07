@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from vllm.core.block.common import BlockList
 from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
+from vllm.sequence import Sequence
 from vllm.utils import Device, cdiv, chunk_list
 
 
@@ -10,7 +11,7 @@ class BlockTable:
     """A class to manage blocks for a specific sequence.
 
     The BlockTable maps a sequence of tokens to a list of blocks, where each
-    block represents a contiguous memory allocation for a portion of the 
+    block represents a contiguous memory allocation for a portion of the
     sequence. The blocks are managed by a DeviceAwareBlockAllocator, which is
     responsible for allocating and freeing memory for the blocks.
 
@@ -73,9 +74,8 @@ class BlockTable:
         """
         return cdiv(len(token_ids), block_size)
 
-    def allocate(self,
-                 token_ids: List[int],
-                 device: Device = Device.GPU) -> None:
+    def allocate(self, seq: Sequence, device: Device = Device.GPU) -> None:
+        # TODO(rickyx): need to handle encoder and decoder case here actually...
         """Allocates memory blocks for storing the given sequence of token IDs.
 
         This method allocates the required number of blocks to store the given
@@ -86,11 +86,15 @@ class BlockTable:
             device (Device, optional): The device on which the blocks should be
                 allocated. Defaults to Device.GPU.
         """
+        token_ids = seq.get_token_ids()
         assert not self._is_allocated
         assert token_ids
-        blocks = self._allocate_blocks_for_token_ids(prev_block=None,
-                                                     token_ids=token_ids,
-                                                     device=device)
+        blocks = self._allocate_blocks_for_sequence(seq, device=device)
+
+        # blocks = self._allocate_blocks_for_token_ids(prev_block=None,
+        #                                              token_ids=token_ids,
+        #                                              device=device)
+
         self.update(blocks)
         self._num_full_slots = len(token_ids)
 
@@ -99,6 +103,13 @@ class BlockTable:
         (with their corresponding block ids)
         """
         self._blocks.update(blocks)
+
+    def append_slots(self, seq: Sequence, num_lookahead_slots: int = 0) -> None:
+        """
+        # TODO: num_lookahead_slots could potentially be part of the block table metaata.
+
+        This method allocates a list of blocks for the given sequence, including
+        """
 
     def append_token_ids(self,
                          token_ids: List[int],
@@ -152,6 +163,9 @@ class BlockTable:
 
         for i, token_block in enumerate(token_blocks):
             self._blocks.append_token_ids(first_block_idx + i, token_block)
+            self._blocks.update_hash(
+                first_block_idx + i, seq.get_block_hash(first_block_idx + i)
+            )
 
         self._num_full_slots += len(token_ids)
 
@@ -255,6 +269,15 @@ class BlockTable:
         # Since the block table is append-only, the unseen token ids are the
         # ones after the appended ones.
         return sequence_token_ids[self.num_full_slots:]
+
+    def _allocate_blocks_for_sequence(
+        self, seq: Sequence, device: Device = Device.GPU
+    ) -> List[Block]:
+        token_ids = seq.get_token_ids()
+
+        block_hashes = seq.get_block_hashes()
+
+        # TODO(rickyx): actually use the block hashes to allocate blocks
 
     def _allocate_blocks_for_token_ids(self, prev_block: Optional[Block],
                                        token_ids: List[int],

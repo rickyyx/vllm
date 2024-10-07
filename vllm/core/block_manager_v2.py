@@ -6,7 +6,7 @@ from typing import Tuple
 
 from vllm.core.block.block_table import BlockTable
 from vllm.core.block.cpu_gpu_block_allocator import CpuGpuBlockAllocator
-from vllm.core.block.interfaces import Block
+from vllm.core.block.interfaces import Block, DeviceAwareBlockAllocator
 from vllm.core.block.prefix_caching_block import (ComputedBlocksTracker,
                                                   LastAccessBlocksTracker)
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
@@ -107,27 +107,64 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         self._last_access_blocks_tracker = LastAccessBlocksTracker(
             self.block_allocator)
 
+    @staticmethod
+    def _get_num_required_new_blocks(
+        seq_group: SequenceGroup,
+        block_allocator: DeviceAwareBlockAllocator,
+        block_size: int,
+        max_block_sliding_window: Optional[int] = None,
+        enable_caching: bool = False,
+    ) -> int:
+        """
+        Get the number of required new blocks for the sequence group if it's
+        to be allocated.
+        """
+        num_required_new_blocks = 0
+        seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
+        if enable_caching:
+            sequence_block_hashes = seq.get_block_hashes()
+            for block_idx, block_hash in enumerate(sequence_block_hashes):
+                # TODO(rickyx): This is not a public API yet.
+                if block_allocator.block_hash_is_computed(block_hash):
+                    continue
+
+                # Block at block_idx is not cached, all remaining blocks including
+                # this block will needed be allocated.
+            num_required_new_blocks = len(sequence_block_hashes) - block_idx
+        else:
+            # Without prefix caching, we need to allocate all blocks for the sequence.
+            num_required_new_blocks = BlockTable.get_num_required_blocks(
+                seq.get_token_ids(),
+                block_size=block_size,
+            )
+
+        # For encoder-decoder models, we also need to allocate blocks for the encoder sequence.
+        if seq_group.is_encoder_decoder():
+            num_required_new_blocks += BlockTable.get_num_required_blocks(
+                seq_group.get_encoder_seq().get_token_ids(),
+                block_size=block_size,
+            )
+
+        if max_block_sliding_window is not None:
+            num_required_new_blocks = min(
+                num_required_new_blocks, max_block_sliding_window
+            )
+
+        return num_required_new_blocks
+
     def can_allocate(self, seq_group: SequenceGroup) -> AllocStatus:
         # FIXME(woosuk): Here we assume that all sequences in the group share
         # the same prompt. This may not be true for preempted sequences.
 
         check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
 
-        seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
-        num_required_blocks = BlockTable.get_num_required_blocks(
-            seq.get_token_ids(),
+        num_required_blocks = self._get_num_required_new_blocks(
+            seq_group,
+            block_allocator=self.block_allocator,
             block_size=self.block_size,
+            max_block_sliding_window=self.max_block_sliding_window,
+            enable_caching=self.enable_caching,
         )
-
-        if seq_group.is_encoder_decoder():
-            num_required_blocks += BlockTable.get_num_required_blocks(
-                seq_group.get_encoder_seq().get_token_ids(),
-                block_size=self.block_size,
-            )
-
-        if self.max_block_sliding_window is not None:
-            num_required_blocks = min(num_required_blocks,
-                                      self.max_block_sliding_window)
 
         num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
             device=Device.GPU)
@@ -147,7 +184,7 @@ class BlockSpaceManagerV2(BlockSpaceManager):
             block_allocator=self.block_allocator,
             max_block_sliding_window=self.max_block_sliding_window,
         )
-        block_table.allocate(seq.get_token_ids())
+        block_table.allocate(seq)
 
         return block_table
 
@@ -366,14 +403,6 @@ class BlockSpaceManagerV2(BlockSpaceManager):
 
             # Refresh the block ids of the table (post-swap)
             self.block_tables[seq.seq_id].update(blocks)
-
-            seq_physical_block_id_mapping = {
-                self.block_allocator.get_physical_block_id(
-                    Device.CPU, cpu_block_id):
-                self.block_allocator.get_physical_block_id(
-                    Device.GPU, gpu_block_id)
-                for cpu_block_id, gpu_block_id in seq_swap_mapping.items()
-            }
 
             physical_block_id_mapping.extend(
                 list(seq_physical_block_id_mapping.items()))

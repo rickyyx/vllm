@@ -537,6 +537,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         else:
             return block_id in self.evictor
 
+    def block_hash_is_computed(self, block_hash: int) -> bool:
+        return block_hash in self._cached_blocks
+
     def get_computed_block_ids(self,
                                prev_computed_block_ids: List[int],
                                block_ids: List[int],
@@ -647,9 +650,6 @@ class PrefixCachingBlockAllocator(BlockAllocator):
 
             block.block_id = block_id  # Assign block_id
 
-
-class PrefixCachingBlock(Block):
-    """A block implementation that supports prefix caching.
 
     The PrefixCachingBlock class represents a block of token IDs with prefix
     caching capabilities. It wraps a NaiveBlock internally and provides
@@ -830,6 +830,9 @@ class PrefixCachingBlock(Block):
             prev_block_hash,
             cur_block_token_ids=self.token_ids)
         return self._cached_content_hash
+
+    def set_hash(self, hash: int) -> None:
+        self._cached_content_hash = hash
 
     @staticmethod
     def hash_block_tokens(is_first_block: bool, prev_block_hash: Optional[int],

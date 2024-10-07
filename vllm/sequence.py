@@ -474,7 +474,18 @@ class Sequence:
         hashed_tokens = self.data.get_prefix_token_ids(num_tokens)
         return hash((hashed_tokens, self.lora_int_id))
 
+    def get_block_hashes(self) -> List[int]:
+        # Get the hash of the sequence for all blocks.
+        # TODO(rickyx): This should be cached and used for block allocation
+        # later to only do one time hash as an optimization.
+        return [self.hash_of_block(i) for i in range(self.n_blocks)]
+
     def num_hashed_tokens_of_block(self, logical_idx: int):
+        # TODO(rickyx): this is wrong if not a single block is hashed.
+        # it happens to work because we use "[:]" to get the remaining
+        # output toekns, which happens to return empty tuple when there's
+        # less tokens than the block size.
+
         return logical_idx * self.block_size + self.block_size
 
     def reset_state_for_recompute(self):
