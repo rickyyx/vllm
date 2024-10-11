@@ -110,14 +110,74 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         self, seq: Sequence, num_lookahead_slots: int = 0
     ) -> int:
         seq_blocks = seq.get_block_hashes()
+        # print(f"seq_blocks: {seq_blocks}")
         cached_seq_blocks = self.block_allocator.get_cached_blocks(
             block_hashes=seq_blocks,
             device=Device.GPU,
         )
-
+        # print(f"cached_seq_blocks: {cached_seq_blocks}")
         num_required_blocks = cdiv(seq.get_len() + num_lookahead_slots, self.block_size)
 
+        # print(
+        #     f"num_required_blocks: {num_required_blocks} with lookahead slots: {num_lookahead_slots}"
+        # )
+        # print("to allocate: ", num_required_blocks - len(cached_seq_blocks))
+
         return num_required_blocks - len(cached_seq_blocks)
+
+    def get_num_computed_tokens(self, seq: Sequence) -> int:
+        seq_blocks = seq.get_block_hashes()
+        cached_seq_blocks = self.block_allocator.get_cached_blocks(
+            block_hashes=seq_blocks,
+            device=Device.GPU,
+        )
+        return len(cached_seq_blocks) * self.block_size
+
+    # def get_num_computed_blocks(self, seq_group: SequenceGroup) -> Dict[SeqId, int]:
+    #     num_computed_blocks = {}
+    #     for seq in seq_group.get_seqs():
+    #         num_computed_blocks[seq.seq_id] = self._get_num_computed_tokens(seq)
+    #     return num_computed_blocks
+
+    def can_allocate_old(
+        self, seq_group: SequenceGroup, num_lookahead_slots: int = 0
+    ) -> AllocStatus:
+        # FIXME(woosuk): Here we assume that all sequences in the group share
+        # the same prompt. This may not be true for preempted sequences.
+
+        check_no_caching_or_swa_for_blockmgr_encdec(self, seq_group)
+
+        seq = seq_group.get_seqs(status=SequenceStatus.WAITING)[0]
+        num_required_blocks = BlockTable.get_num_required_blocks(
+            seq.get_token_ids(),
+            block_size=self.block_size,
+            num_lookahead_slots=num_lookahead_slots,
+        )
+
+        if seq_group.is_encoder_decoder():
+            encoder_seq = seq_group.get_encoder_seq()
+            assert encoder_seq is not None
+            num_required_blocks += BlockTable.get_num_required_blocks(
+                encoder_seq.get_token_ids(),
+                block_size=self.block_size,
+            )
+
+        if self.max_block_sliding_window is not None:
+            num_required_blocks = min(
+                num_required_blocks, self.max_block_sliding_window
+            )
+
+        num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
+            device=Device.GPU
+        )
+
+        # Use watermark to avoid frequent cache eviction.
+        if self.num_total_gpu_blocks - num_required_blocks < self.watermark_blocks:
+            return AllocStatus.NEVER
+        if num_free_gpu_blocks - num_required_blocks >= self.watermark_blocks:
+            return AllocStatus.OK
+        else:
+            return AllocStatus.LATER
 
     def can_allocate(self,
                      seq_group: SequenceGroup,
@@ -145,15 +205,27 @@ class BlockSpaceManagerV2(BlockSpaceManager):
             )
 
         num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
-            device=Device.GPU)
+            device=Device.GPU
+        )
+        # print(f"num_blocks_to_allocate: {num_blocks_to_allocate}")
+        # print(f"num_free_gpu_blocks: {num_free_gpu_blocks}")
+        # print(f"watermark_blocks: {self.watermark_blocks}")
 
         # Use watermark to avoid frequent cache eviction.
+        # old_can_allocate = self.can_allocate_old(seq_group, num_lookahead_slots)
+
+        can_allocate = None
         if self.num_total_gpu_blocks - num_blocks_to_allocate < self.watermark_blocks:
             return AllocStatus.NEVER
         if num_free_gpu_blocks - num_blocks_to_allocate >= self.watermark_blocks:
             return AllocStatus.OK
         else:
             return AllocStatus.LATER
+
+        # if old_can_allocate != can_allocate:
+        #     print(f"old_can_allocate: {old_can_allocate}, can_allocate: {can_allocate}")
+
+        return can_allocate
 
     def _allocate_sequence(self, seq: Sequence) -> BlockTable:
         block_table = BlockTable(
@@ -225,22 +297,21 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         This is used by speculative decoding when speculating future tokens.
         """
 
-        num_blocks_to_allocate = 0
+        num_touched_blocks = 0
+        # TODO(rickyx): Potentially there's could be cached blocks reuse here. i.e
+        # The newly appended tokens might create one or more full blocks, which
+        # could be reused from the cache.
         for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
-            num_blocks_to_allocate += self._get_num_blocks_to_allocate(
-                seq, num_lookahead_slots=num_lookahead_slots
+            block_table = self.block_tables[seq.seq_id]
+            num_touched_blocks += block_table.get_num_blocks_touched_by_append_slots(
+                token_ids=block_table.get_unseen_token_ids(seq.get_token_ids()),
+                num_lookahead_slots=num_lookahead_slots,
             )
 
-            # num_touched_blocks += (
-            #     block_table.get_num_blocks_touched_by_append_slots(
-            #         token_ids=block_table.get_unseen_token_ids(
-            #             seq.get_token_ids()),
-            #         num_lookahead_slots=num_lookahead_slots,
-            #     ))
-
         num_free_gpu_blocks = self.block_allocator.get_num_free_blocks(
-            Device.GPU)
-        return num_blocks_to_allocate <= num_free_gpu_blocks
+            device=Device.GPU
+        )
+        return num_touched_blocks <= num_free_gpu_blocks
 
     def append_slots(
         self,
@@ -513,8 +584,10 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         if self.block_allocator.get_num_total_blocks(
                 device) < num_blocks_touched:
             return AllocStatus.NEVER
-        elif self.block_allocator.get_num_free_blocks(
-                device) - num_blocks_touched >= watermark_blocks:
+        elif (
+            self.block_allocator.get_num_free_blocks(device=device) - num_blocks_touched
+            >= watermark_blocks
+        ):
             return AllocStatus.OK
         else:
             return AllocStatus.LATER

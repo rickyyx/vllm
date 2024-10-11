@@ -162,6 +162,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         cached_block_id = self._cached_blocks.get(block_hash, None)
         if cached_block_id is not None:
             # Initialize a block that points to cached data
+            # print(
+            #     f"reuse block_hash={block_hash} from cached_block_id: {cached_block_id}"
+            # )
             block: Block = self._block_pool.init_block(
                 prev_block=prev_block,
                 token_ids=token_ids,
@@ -172,6 +175,10 @@ class PrefixCachingBlockAllocator(BlockAllocator):
             self.metric_data.query(hit=True)
             self._incr_refcount_cached_block(block)
             return block
+
+        # print(
+        #     f"alloc from new block(block_hash: {block_hash}), get_num_free_blocks: {self.get_num_free_blocks()}"
+        # )
         self.metric_data.query(hit=False)
 
         # No cached block => Allocate a new block
@@ -216,7 +223,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         """
         assert device is None
         assert_prefix_caching_block_or_none(prev_block)
-
+        # print(
+        #     f"Allocating mutable block: get_num_free_blocks: {self.get_num_free_blocks()}"
+        # )
         block_id = self._allocate_block_id()
         block = self._block_pool.init_block(prev_block=prev_block,
                                             token_ids=[],
@@ -287,6 +296,7 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         """First tries to allocate a block id from the hashless allocator,
         and if there are no blocks, then tries to evict an unused cached block.
         """
+        # print(f"allocating block_id: get_num_free_blocks: {self.get_num_free_blocks()}")
         hashless_block_id = self._maybe_allocate_hashless_block_id()
         if hashless_block_id is not None:
             return hashless_block_id
@@ -407,8 +417,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
         assert device is None
         # The number of free blocks is the number of hashless free blocks
         # plus the number of blocks evictor could free from its list.
-        return self._hashless_allocator.get_num_free_blocks(
-        ) + self.evictor.num_blocks
+        return self._hashless_allocator.get_num_free_blocks() + (
+            self.evictor.num_blocks
+        )
 
     def get_num_total_blocks(self) -> int:
         return self._hashless_allocator.get_num_total_blocks()
@@ -499,6 +510,9 @@ class PrefixCachingBlockAllocator(BlockAllocator):
             return src_block_id
 
         self._free_block_id(block)
+        # print(
+        #     f"Allocating block for COW: get_num_free_blocks: {self.get_num_free_blocks()}"
+        # )
         trg_block_id = self._allocate_block_id()
 
         self._cow_tracker.record_cow(src_block_id, trg_block_id)
@@ -664,11 +678,36 @@ class PrefixCachingBlockAllocator(BlockAllocator):
 
     def get_cached_blocks(self, block_hashes: List[PrefixHash]) -> List[PrefixHash]:
         # Search for the longest prefix in `block_hashes` that are present cached blocks.
-        # TODO(rickyx): this could be made to binary search.
-        for i, block_hash in enumerate(block_hashes):
+        def is_cached_and_not_evict(block_hash: PrefixHash) -> bool:
             if block_hash not in self._cached_blocks:
-                return block_hashes[:i]
-        return block_hashes
+                return False
+            cached_block_id = self._cached_blocks[block_hash]
+
+            if cached_block_id in self.evictor:
+                return False
+            
+            # We only consider the blocks that are marked as computed.
+            if not self._block_tracker[cached_block_id].computed:
+                return False
+
+            return True
+
+        from bisect import bisect_left
+
+        idx = bisect_left(
+            block_hashes, True, key=lambda x: not is_cached_and_not_evict(x)
+        )
+        return block_hashes[:idx]
+
+        # for i, block_hash in enumerate(block_hashes):
+        #     if block_hash not in self._cached_blocks:
+        #         return block_hashes[:i]
+
+        #     cached_block_id = self._cached_blocks[block_hash]
+        #     if cached_block_id in self.evictor:
+        #         # If the block is alread in evictor, we currently do not count it reusable.
+        #         return block_hashes[:i]
+        # return block_hashes
 
 
 class PrefixCachingBlock(Block):
