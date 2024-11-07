@@ -167,6 +167,7 @@ class SequenceData(msgspec.Struct,
                                    ...] = msgspec.field(default_factory=tuple)
     # The number of tokens that are computed (that run against the model).
     _num_computed_tokens: int = 0
+    _num_prefix_cached_tokens: int = 0
     _stage: SequenceStage = SequenceStage.PREFILL
     _cached_all_token_ids: List[int] = msgspec.field(default_factory=list)
 
@@ -312,6 +313,12 @@ class SequenceData(msgspec.Struct,
     def get_num_computed_tokens(self) -> int:
         """Return the number of prefill tokens that are already computed."""
         return self._num_computed_tokens
+
+    def set_num_prefix_cached_tokens(self, num_new_cached_tokens: int):
+        self._num_prefix_cached_tokens = num_new_cached_tokens
+
+    def get_num_prefix_cached_tokens(self) -> int:
+        return self._num_prefix_cached_tokens
 
     def update_num_computed_tokens(self, num_new_computed_tokens: int):
         """Update number of tokens computed so far."""
@@ -463,6 +470,8 @@ class Sequence:
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
 
+        self._computed_block_hashes: List[int] = []
+
     @property
     def n_blocks(self) -> int:
         return (self.get_len() + self.block_size - 1) // self.block_size
@@ -557,18 +566,88 @@ class Sequence:
 
         return self.data._cached_all_token_ids[-num_new_tokens:]
 
-    def hash_of_block(self, logical_idx: int) -> int:
-        # TODO This can produce incorrect hash when block size > prompt size
+    def update_and_get_block_hash(self, block_idx: int) -> Optional[int]:
+        """
+        Get the block hash for a given block index.
+        Optionally update the block hashes if not computed yet.
+        """
+        # Lazy update the block hashes on the first invocation.
+        if block_idx >= len(self._computed_block_hashes):
+            self._update_block_hashes()
 
-        # Compute the number of tokens in the sequence
-        # TODO: The current hashing function is O(L^2). We should optimize
-        # this in the future.
-        num_tokens = self.num_hashed_tokens_of_block(logical_idx)
-        hashed_tokens = self.data.get_prefix_token_ids(num_tokens)
-        return hash((hashed_tokens, self.lora_int_id))
+        if block_idx < len(self._computed_block_hashes):
+            return self._computed_block_hashes[block_idx]
+        return None
 
-    def num_hashed_tokens_of_block(self, logical_idx: int):
-        return logical_idx * self.block_size + self.block_size
+    def get_block_hashes(self) -> List[int]:
+        self._update_block_hashes()
+        return self._computed_block_hashes
+
+    def _update_block_hashes(self):
+        """
+        Update the block hashes for all the full blocks in the sequence.
+        It skips the blocks that have already been computed.
+        """
+        token_ids = self.get_token_ids()  # All token ids in the sequence
+        num_full_blocks = len(token_ids) // self.block_size
+        cur_num_full_blocks = len(self._computed_block_hashes)
+        prev_block_hash = (None if cur_num_full_blocks == 0 else
+                           self._computed_block_hashes[-1])
+        for i in range(cur_num_full_blocks, num_full_blocks):
+            block_token_ids = token_ids[i * self.block_size:(i + 1) *
+                                        self.block_size]
+            assert len(block_token_ids) == self.block_size
+            block_hash = hash((
+                prev_block_hash,  # Previous block hash
+                self.
+                from_decoder_prompt,  # Whether the sequence is decoder-only
+                # LoRA int id since the attention output will depend on
+                # LoRA with same token ids.
+                self.lora_int_id,
+                *block_token_ids,  # The block token ids
+            ))
+            self._computed_block_hashes.append(block_hash)
+            prev_block_hash = block_hash
+
+    def _reset_block_hashes(self):
+        """
+        Clear all the block hashes from output tokens. The full blocks for the
+        prompt tokens should not be cleared.
+
+        This is used when the sequence is recomputed.
+        """
+        num_full_prompt_blocks = self.get_prompt_len() // self.block_size
+        self._computed_block_hashes = self._computed_block_hashes[
+            num_full_prompt_blocks:]
+
+    def set_num_prefix_cached_tokens(self, num_prefix_cached_tokens: int):
+        self.data.set_num_prefix_cached_tokens(num_prefix_cached_tokens)
+
+    def hash_of_block(self, prev_block_hash: Optional[int],
+                      cur_block_idx: int) -> int:
+        """
+        Get the hash of a given block of the sequence.
+
+        Args:
+            prev_block_hash: The hash of the previous block.
+            block_idx: The index of the block. It should be a valid block index
+                       of the sequence, i.e. it's a full block.
+
+        Returns:
+            The hash of the block.
+        """
+        token_ids = self.get_token_ids()
+        assert (cur_block_idx + 1) * self.block_size <= len(token_ids), (
+            f"Invalid block index: {cur_block_idx}. The sequence only has "
+            f"{len(token_ids) // self.block_size} blocks.")
+        block_token_ids = token_ids[cur_block_idx *
+                                    self.block_size:(cur_block_idx + 1) *
+                                    self.block_size]
+        return hash((
+            prev_block_hash,
+            self.lora_int_id,
+            *block_token_ids,
+        ))
 
     def reset_state_for_recompute(self):
         """Reset the sequence states for recomputation."""
@@ -579,6 +658,10 @@ class Sequence:
         assert token_id in logprobs
         self.output_logprobs.append(logprobs)
         self.data.append_token_id(token_id, logprobs[token_id].logprob)
+
+    def update_num_computed_tokens(self, num_tokens: int):
+        self.data.update_num_computed_tokens(num_tokens)
+        self._update_block_hashes()
 
     def get_len(self) -> int:
         return self.data.get_len()
@@ -612,19 +695,29 @@ class Sequence:
         new_seq.seq_id = new_seq_id
         return new_seq
 
-    def get_num_new_tokens(self) -> int:
-        """Get the number of new tokens to be computed.
+    def get_num_computed_tokens(self) -> int:
+        return self.data.get_num_computed_tokens()
 
-        Returns:
-            The new number of tokens to be computed. I.e., 1 for decode, or
-            the remaining prompt size for prefill.
-        """
-        if self.data.stage == SequenceStage.DECODE:
-            return 1
-        return self.data.get_num_uncomputed_tokens()
+    # def get_num_new_tokens(self) -> int:
+    #     """Get the number of new tokens to be computed.
+
+    #     Returns:
+    #         The new number of tokens to be computed. I.e., 1 for decode, or
+    #         the remaining prompt size for prefill.
+    #     """
+    #     if self.data.stage == SequenceStage.DECODE:
+    #         return 1
+
+    #     return self.data.get_num_uncomputed_tokens()
+
+    # def get_num_cached_tokens(self) -> int:
+    #     return self.data.get_num_prefix_cached_tokens()
 
     def is_prefill(self) -> bool:
         return self.data.stage == SequenceStage.PREFILL
+
+    def is_from_decoder_prompt(self) -> bool:
+        return self.from_decoder_prompt
 
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "

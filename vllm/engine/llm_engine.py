@@ -1783,7 +1783,6 @@ class LLMEngine:
             #   Prefix Cache Hit Rate
             cpu_prefix_cache_hit_rate=cpu_prefix_cache_hit_rate,
             gpu_prefix_cache_hit_rate=gpu_prefix_cache_hit_rate,
-
             # Iteration stats
             num_prompt_tokens_iter=num_prompt_tokens_iter,
             num_generation_tokens_iter=num_generation_tokens_iter,
@@ -1791,7 +1790,6 @@ class LLMEngine:
             time_per_output_tokens_iter=time_per_output_tokens_iter,
             spec_decode_metrics=spec_decode_metrics,
             num_preemption_iter=num_preemption_iter,
-
             # Request stats
             #   Latency
             time_e2e_requests=time_e2e_requests,
@@ -1802,7 +1800,8 @@ class LLMEngine:
             finished_reason_requests=finished_reason_requests,
             max_lora=str(max_lora_stat),
             waiting_lora_adapters=list(waiting_lora_adapters.keys()),
-            running_lora_adapters=list(running_lora_adapters.keys()))
+            running_lora_adapters=list(running_lora_adapters.keys()),
+        )
 
     def add_lora(self, lora_request: LoRARequest) -> bool:
         return self.model_executor.add_lora(lora_request)

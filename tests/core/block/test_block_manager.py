@@ -1,3 +1,4 @@
+import math
 import pytest
 
 from vllm.core.block.utils import (STR_NOT_IMPL_ENC_DEC_PREFIX_CACHE,
@@ -205,6 +206,75 @@ def test_can_allocate_encoder_decoder_fails_with_prefix_cache(
     assert str(exc_info.value) == STR_NOT_IMPL_ENC_DEC_PREFIX_CACHE
 
 
+@pytest.mark.parametrize("block_size", [1, 4])
+@pytest.mark.parametrize("num_prefill_tokens", [1, 2, 4, 5, 6, 8, 10])
+@pytest.mark.parametrize("prefix_shared_percentage", [0.0, 0.3, 0.5, 0.7, 1.0])
+def test_can_allocate_with_prefix_cache(
+    block_size: int,
+    num_prefill_tokens: int,
+    prefix_shared_percentage: float,
+):
+    num_seqs_fittable = 1.5
+    num_blocks_required_seq = math.ceil(num_prefill_tokens / block_size)
+    num_gpu_blocks = math.ceil(num_seqs_fittable * num_blocks_required_seq)
+
+    num_tokens_shared = int(num_prefill_tokens * prefix_shared_percentage)
+    num_blocks_shared = num_tokens_shared // block_size
+
+    tokens_1 = list(range(num_prefill_tokens))
+    tokens_2 = tokens_1[:num_tokens_shared] + [
+        t + 10 for t in tokens_1[num_tokens_shared:]
+    ]
+
+    print(f"tokens_1: {tokens_1}")
+    print(f"tokens_2: {tokens_2}")
+    print(f"num_blocks_shared: {num_blocks_shared}")
+    print(f"num_blocks_required_seq: {num_blocks_required_seq}")
+    print(f"num_gpu_blocks: {num_gpu_blocks}")
+
+    # Num blocks needed for 2 seqs, minus the number of blocks shared.
+    num_blocks_required_with_sharing = 2 * num_blocks_required_seq - num_blocks_shared
+    print(
+        f"num_blocks_required_with_sharing: {num_blocks_required_with_sharing}"
+    )
+
+    block_manager = SelfAttnBlockSpaceManager(
+        block_size=block_size,
+        num_gpu_blocks=num_gpu_blocks,
+        num_cpu_blocks=0,
+        enable_caching=True,  # Prefix cache
+    )
+
+    seq_group_1 = create_seq_group(
+        seq_output_lens=[0],
+        request_id="0",
+        seq_id_start=0,
+        prompt_token_ids=tokens_1,
+        block_size=block_size,
+    )
+    assert block_manager.can_allocate(seq_group_1) == AllocStatus.OK
+    # Allocate the seq 1
+    block_manager.allocate(seq_group_1)
+
+    # Mark the seq 1 as computed (This should be done by the scheduler in reality)
+    block_manager.mark_blocks_as_computed(seq_group=seq_group_1,
+                                          token_chunk_size=len(tokens_1))
+
+    # Test if allocatable of seq 2.
+    seq_group_2 = create_seq_group(
+        seq_output_lens=[0],
+        request_id="1",
+        seq_id_start=1,
+        prompt_token_ids=tokens_2,
+        block_size=block_size,
+    )
+    if num_blocks_required_with_sharing <= num_gpu_blocks:
+        assert block_manager.can_allocate(seq_group_2) == AllocStatus.OK
+        block_manager.allocate(seq_group_2)
+    else:
+        assert block_manager.can_allocate(seq_group_2) == AllocStatus.LATER
+
+
 @pytest.mark.parametrize("block_size", [1, 8])
 @pytest.mark.parametrize("prompt_len", [1, 7, 8])
 @pytest.mark.parametrize("num_slots_to_append", [1, 8, 129])
@@ -328,7 +398,10 @@ def test_can_swap(block_size, num_gpu_blocks, num_lookahead_slots,
                                               watermark=0,
                                               enable_caching=enable_caching)
     prompt, seq_group = create_dummy_prompt(
-        "1", prompt_length=(num_gpu_blocks - 1) * block_size - 1)
+        "1",
+        prompt_length=(num_gpu_blocks - 1) * block_size - 1,
+        block_size=block_size,
+    )
     prompt.status = SequenceStatus.WAITING
     block_manager.allocate(seq_group)
     prompt.status = SequenceStatus.RUNNING
@@ -484,6 +557,7 @@ def test_sliding_window(block_size, prompt_len, num_slots_to_append,
     for token_id in range(num_slots_to_append):
         seq.append_token_id(token_id, {token_id: Logprob(0.0)})
         seq.data.update_num_computed_tokens(1)
+        block_manager._computed_blocks_tracker.update_seq(seq)
         block_manager.append_slots(seq, num_lookahead_slots=0)
         if prompt_len < sliding_window + 10:
             check_used(0, sliding_blocks + 1)

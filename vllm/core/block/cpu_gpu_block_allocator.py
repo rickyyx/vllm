@@ -4,6 +4,7 @@ from vllm.core.block.interfaces import (Block, BlockAllocator, BlockId,
                                         DeviceAwareBlockAllocator)
 from vllm.core.block.naive_block import NaiveBlock, NaiveBlockAllocator
 from vllm.core.block.prefix_caching_block import PrefixCachingBlockAllocator
+from vllm.sequence import Sequence
 from vllm.utils import Device
 
 
@@ -116,8 +117,11 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
                 self.allocate_mutable_block(None, Device.GPU))
         return self._null_block
 
-    def allocate_mutable_block(self, prev_block: Optional[Block],
-                               device: Device) -> Block:
+    def allocate_mutable_block(
+        self,
+        prev_block: Optional[Block],
+        device: Device,
+    ) -> Block:
         """Allocates a new mutable block on the specified device.
 
         Args:
@@ -130,9 +134,13 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         """
         return self._allocators[device].allocate_mutable_block(prev_block)
 
-    def allocate_immutable_blocks(self, prev_block: Optional[Block],
-                                  block_token_ids: List[List[int]],
-                                  device: Device) -> List[Block]:
+    def allocate_immutable_blocks(
+        self,
+        prev_block: Optional[Block],
+        block_token_ids: List[List[int]],
+        device: Device,
+        block_hashes: List[Optional[int]],
+    ) -> List[Block]:
         """Allocates a new group of immutable blocks with the provided block 
         token IDs on the specified device.
 
@@ -148,7 +156,7 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
                 containing the provided block token IDs.
         """
         return self._allocators[device].allocate_immutable_blocks(
-            prev_block, block_token_ids)
+            prev_block, block_token_ids, block_hashes)
 
     def allocate_immutable_block(self, prev_block: Optional[Block],
                                  token_ids: List[int],
@@ -337,6 +345,13 @@ class CpuGpuBlockAllocator(DeviceAwareBlockAllocator):
         self._swap_mapping.clear()
         return list(mapping.items())
 
+    def find_cached_blocks_prefix(self, block_hashes: List[int],
+                                  allocated: bool) -> List[int]:
+        # Prefix caching only supported on GPU.
+        device = Device.GPU
+        return self._allocators[device].find_cached_blocks_prefix(
+            block_hashes, allocated)
+
 
 class NullBlock(Block):
     """
@@ -351,7 +366,9 @@ class NullBlock(Block):
         super().__init__()
         self._proxy = proxy
 
-    def append_token_ids(self, token_ids: List[BlockId]):
+    def append_token_ids(self,
+                         token_ids: List[BlockId],
+                         block_hash: Optional[int] = None) -> None:
         raise ValueError("null block should not be modified")
 
     @property
@@ -402,3 +419,7 @@ class NullBlock(Block):
     @property
     def content_hash(self):
         return self._proxy.content_hash
+
+    def set_content_hash(self, content_hash: Optional[int]) -> None:
+        raise NotImplementedError(
+            "NullBlock does not support set_content_hash")

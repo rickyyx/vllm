@@ -117,8 +117,8 @@ def main(args):
     input_length_range = tuple(map(int, args.input_length_range.split(':')))
     random.seed(args.seed)
     if args.dataset_path is not None:
-        print(f"Start to sample {args.num_prompts} prompts"
-              "from {args.dataset_path}")
+        print(f"Start to sample {args.num_prompts} prompts "
+              f"from {args.dataset_path}")
         filtered_datasets = sample_requests(
             dataset_path=args.dataset_path,
             num_requests=args.num_prompts,
@@ -132,6 +132,7 @@ def main(args):
                              ] * args.num_prompts
 
     engine_args = EngineArgs.from_cli_args(args)
+    engine_args.enable_chunked_prefill = True
 
     llm = LLM(**dataclasses.asdict(engine_args))
 

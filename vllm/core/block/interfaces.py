@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, FrozenSet, List, Optional, Protocol, Tuple
 
+from vllm.sequence import Sequence
 from vllm.utils import Device
 
 BlockId = int
@@ -9,7 +10,9 @@ BlockId = int
 class Block(ABC):
 
     @abstractmethod
-    def append_token_ids(self, token_ids: List[int]) -> None:
+    def append_token_ids(self,
+                         token_ids: List[int],
+                         block_hash: Optional[int] = None) -> None:
         pass
 
     @property
@@ -95,6 +98,10 @@ class Block(ABC):
         """
         return None
 
+    @abstractmethod
+    def set_content_hash(self, content_hash: Optional[int]) -> None:
+        pass
+
 
 class BlockAllocator(ABC):
 
@@ -103,14 +110,21 @@ class BlockAllocator(ABC):
         pass
 
     @abstractmethod
-    def allocate_immutable_block(self, prev_block: Optional[Block],
-                                 token_ids: List[int]) -> Block:
+    def allocate_immutable_block(
+        self,
+        prev_block: Optional[Block],
+        token_ids: List[int],
+        block_hash: Optional[int] = None,
+    ) -> Block:
         pass
 
     @abstractmethod
     def allocate_immutable_blocks(
-            self, prev_block: Optional[Block],
-            block_token_ids: List[List[int]]) -> List[Block]:
+        self,
+        prev_block: Optional[Block],
+        block_token_ids: List[List[int]],
+        block_hashes: List[Optional[int]],
+    ) -> List[Block]:
         pass
 
     @abstractmethod
@@ -189,6 +203,11 @@ class BlockAllocator(ABC):
         """Prefix cache hit rate. -1 means not supported or disabled."""
         pass
 
+    @abstractmethod
+    def find_cached_blocks_prefix(self, block_hashes: List[int],
+                                  allocated: bool) -> List[int]:
+        pass
+
     class NoFreeBlocksError(ValueError):
         pass
 
@@ -207,9 +226,13 @@ class DeviceAwareBlockAllocator(ABC):
         pass
 
     @abstractmethod
-    def allocate_immutable_blocks(self, prev_block: Optional[Block],
-                                  block_token_ids: List[List[int]],
-                                  device: Device) -> List[Block]:
+    def allocate_immutable_blocks(
+        self,
+        prev_block: Optional[Block],
+        block_token_ids: List[List[int]],
+        device: Device,
+        block_hashes: List[Optional[int]],
+    ) -> List[Block]:
         pass
 
     @abstractmethod
@@ -283,4 +306,9 @@ class DeviceAwareBlockAllocator(ABC):
     @abstractmethod
     def get_prefix_cache_hit_rate(self, device: Device) -> float:
         """Prefix cache hit rate. -1 means not supported or disabled."""
+        pass
+
+    @abstractmethod
+    def find_cached_blocks_prefix(self, block_hashes: List[int],
+                                  allocated: bool) -> List[int]:
         pass
